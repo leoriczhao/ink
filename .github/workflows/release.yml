@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake
+
+      - name: Configure (Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: |
+          cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
+          cmake --build build-test -j$(nproc)
+          ctest --test-dir build-test --output-on-failure
+
+      - name: Package
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          mkdir -p ink-${VERSION}/{lib,include}
+          cp build/libink.a ink-${VERSION}/lib/
+          cp -r include/ink ink-${VERSION}/include/
+          tar czf ink-${VERSION}-linux-x64.tar.gz ink-${VERSION}/
+
+      - name: Create GitHub Release
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          gh release create ${VERSION} \
+            --title "ink ${VERSION}" \
+            --generate-notes \
+            ink-${VERSION}-linux-x64.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
