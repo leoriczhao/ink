@@ -43,7 +43,7 @@ if(INK_ENABLE_GL)
         target_sources(ink PRIVATE
             src/gpu/gl/gl_backend.cpp
         )
-        target_link_libraries(ink PRIVATE OpenGL::GL GLEW::GLEW)
+        target_link_libraries(ink PUBLIC OpenGL::GL GLEW::GLEW)
         target_compile_definitions(ink PUBLIC INK_HAS_GL=1)
         message(STATUS "ink: OpenGL backend enabled")
     else()
