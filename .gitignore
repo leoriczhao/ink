@@ -6,4 +6,5 @@ out/
 *.a
 *.so
 *.dylib
+*.ppm
 compile_commands.json

@@ -38,15 +38,21 @@ target_include_directories(ink
 # --- OpenGL backend ---
 if(INK_ENABLE_GL)
     find_package(OpenGL QUIET)
-    if(OpenGL_FOUND)
+    find_package(GLEW QUIET)
+    if(OpenGL_FOUND AND GLEW_FOUND)
         target_sources(ink PRIVATE
             src/gpu/gl/gl_backend.cpp
         )
-        target_link_libraries(ink PRIVATE OpenGL::GL)
+        target_link_libraries(ink PRIVATE OpenGL::GL GLEW::GLEW)
         target_compile_definitions(ink PUBLIC INK_HAS_GL=1)
         message(STATUS "ink: OpenGL backend enabled")
     else()
-        message(STATUS "ink: OpenGL not found, GL backend disabled")
+        if(NOT OpenGL_FOUND)
+            message(STATUS "ink: OpenGL not found, GL backend disabled")
+        endif()
+        if(NOT GLEW_FOUND)
+            message(STATUS "ink: GLEW not found, GL backend disabled")
+        endif()
     endif()
 endif()
 
@@ -95,3 +101,44 @@ install(EXPORT inkTargets
     NAMESPACE ink::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ink
 )
+
+# --- Examples ---
+if(INK_BUILD_EXAMPLES)
+    add_executable(example_basic examples/example_basic.cpp)
+    target_link_libraries(example_basic PRIVATE ink)
+
+    add_executable(example_composite examples/example_composite.cpp)
+    target_link_libraries(example_composite PRIVATE ink)
+endif()
+
+# --- Tests ---
+if(INK_BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.14.0
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    enable_testing()
+
+    set(INK_TEST_SOURCES
+        tests/test_types.cpp
+        tests/test_pixmap.cpp
+        tests/test_recording.cpp
+        tests/test_draw_pass.cpp
+        tests/test_image.cpp
+        tests/test_canvas.cpp
+        tests/test_cpu_backend.cpp
+        tests/test_surface.cpp
+        tests/test_composite.cpp
+    )
+
+    add_executable(ink_tests ${INK_TEST_SOURCES})
+    target_link_libraries(ink_tests PRIVATE ink GTest::gtest_main)
+
+    include(GoogleTest)
+    gtest_discover_tests(ink_tests)
+endif()

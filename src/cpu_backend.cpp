@@ -203,7 +203,7 @@ void CpuBackend::drawImageImpl(const Image* image, f32 x, f32 y) {
 
     i32 srcStridePixels = image->stride() / 4;
     const u32* srcPixels = image->pixels32();
-    bool sameFmt = (image->format() == target_->format());
+    (void)(image->format() == target_->format()); // sameFmt reserved for future optimization
 
     for (i32 row = startY; row < endY; ++row) {
         i32 srcRow = row - dstY;
