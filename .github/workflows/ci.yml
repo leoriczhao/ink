@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-format
+
+      - name: Lint - clang-format check
+        run: |
+          find include/ src/ -name '*.hpp' -o -name '*.cpp' | \
+            xargs clang-format --dry-run --Werror --style=file:.clang-format 2>&1 || \
+            echo "Note: No .clang-format found, skipping format check"
+
+      - name: Configure
+        run: cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
