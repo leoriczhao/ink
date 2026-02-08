@@ -109,6 +109,15 @@ if(INK_BUILD_EXAMPLES)
 
     add_executable(example_composite examples/example_composite.cpp)
     target_link_libraries(example_composite PRIVATE ink)
+
+    # Link EGL for headless GPU context in examples
+    if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
+        find_library(EGL_LIBRARY EGL)
+        if(EGL_LIBRARY)
+            target_link_libraries(example_basic PRIVATE ${EGL_LIBRARY})
+            target_link_libraries(example_composite PRIVATE ${EGL_LIBRARY})
+        endif()
+    endif()
 endif()
 
 # --- Tests ---
