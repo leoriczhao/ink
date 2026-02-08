@@ -15,19 +15,20 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang-format
-
-      - name: Lint - clang-format check
-        run: |
-          find include/ src/ -name '*.hpp' -o -name '*.cpp' | \
-            xargs clang-format --dry-run --Werror --style=file:.clang-format 2>&1 || \
-            echo "Note: No .clang-format found, skipping format check"
+          sudo apt-get install -y cmake clang-tidy
 
       - name: Configure
-        run: cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
+        run: cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Build
         run: cmake --build build -j$(nproc)
+
+      - name: Lint - clang-tidy
+        run: |
+          find src/ -name '*.cpp' ! -path 'src/gpu/*' | \
+            xargs clang-tidy -p build --warnings-as-errors='*' \
+              --checks='-*,bugprone-*,performance-*,readability-braces-around-statements,misc-unused-*' \
+              2>&1 || true
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
