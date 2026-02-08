@@ -1,2 +1,0 @@
-/usr/bin/ar qc libink.a CMakeFiles/ink.dir/src/pixmap.cpp.o CMakeFiles/ink.dir/src/recording.cpp.o CMakeFiles/ink.dir/src/draw_pass.cpp.o CMakeFiles/ink.dir/src/device.cpp.o CMakeFiles/ink.dir/src/canvas.cpp.o CMakeFiles/ink.dir/src/surface.cpp.o CMakeFiles/ink.dir/src/image.cpp.o CMakeFiles/ink.dir/src/cpu_backend.cpp.o CMakeFiles/ink.dir/src/glyph_cache.cpp.o CMakeFiles/ink.dir/src/gpu/gl/gl_backend.cpp.o
-/usr/bin/ranlib libink.a
