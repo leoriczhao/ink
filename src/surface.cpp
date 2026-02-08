@@ -1,77 +1,102 @@
 #include "ink/surface.hpp"
 #include "ink/canvas.hpp"
-#include "ink/context.hpp"
 #include "ink/device.hpp"
-#include "ink/device_visitor.hpp"
+#include "ink/cpu_backend.hpp"
+#include "ink/draw_pass.hpp"
+#include "ink/image.hpp"
+
+#if INK_HAS_GL
+#include "ink/gpu/gl_backend.hpp"
+#endif
 
 namespace ink {
 
 std::unique_ptr<Surface> Surface::MakeAuto(i32 w, i32 h, PixelFormat fmt) {
-#if WAVEFORM_HAS_GL
-    // Try GPU first
+#if INK_HAS_GL
     try {
-        auto ctx = Context::MakeGL();
-        if (ctx && ctx->init(w, h)) {
-            return Surface::MakeGpu(std::move(ctx), w, h);
-        }
+        auto backend = GLBackend::Make(w, h);
+        if (backend) return MakeGpu(std::move(backend), w, h);
     } catch (...) {
         // Fall through to CPU
     }
 #endif
-    // Fall back to CPU raster
-    return Surface::MakeRaster(w, h, fmt);
+    return MakeRaster(w, h, fmt);
 }
 
-Surface::Surface(std::unique_ptr<Device> device,
-                 std::unique_ptr<Context> context,
+Surface::Surface(std::unique_ptr<Backend> backend,
                  std::unique_ptr<Pixmap> pixmap)
-    : device_(std::move(device)), context_(std::move(context)),
+    : device_(),
+      backend_(std::move(backend)),
       pixmap_(std::move(pixmap)) {
-    canvas_ = std::make_unique<Canvas>(device_.get());
+    canvas_ = std::make_unique<Canvas>(&device_);
 }
 
 Surface::~Surface() = default;
+
+std::unique_ptr<Surface> Surface::MakeRaster(i32 w, i32 h, PixelFormat fmt) {
+    PixmapInfo info = PixmapInfo::Make(w, h, fmt);
+    auto pixmap = std::make_unique<Pixmap>(Pixmap::Alloc(info));
+    Pixmap* raw = pixmap.get();
+    auto backend = std::make_unique<CpuBackend>(raw);
+    return std::unique_ptr<Surface>(new Surface(std::move(backend), std::move(pixmap)));
+}
+
+std::unique_ptr<Surface> Surface::MakeRasterDirect(const PixmapInfo& info, void* pixels) {
+    auto pixmap = std::make_unique<Pixmap>(Pixmap::Wrap(info, pixels));
+    Pixmap* raw = pixmap.get();
+    auto backend = std::make_unique<CpuBackend>(raw);
+    return std::unique_ptr<Surface>(new Surface(std::move(backend), std::move(pixmap)));
+}
+
+std::unique_ptr<Surface> Surface::MakeRecording(i32, i32) {
+    return std::unique_ptr<Surface>(new Surface(nullptr, nullptr));
+}
+
+std::unique_ptr<Surface> Surface::MakeGpu(std::unique_ptr<Backend> backend, i32, i32) {
+    return std::unique_ptr<Surface>(new Surface(std::move(backend), nullptr));
+}
 
 void Surface::resize(i32 w, i32 h) {
     if (pixmap_) {
         PixmapInfo info = PixmapInfo::Make(w, h, pixmap_->format());
         pixmap_->reallocate(info);
     }
-    device_->resize(w, h);
-    if (context_) {
-        context_->resize(w, h);
+    if (backend_) {
+        backend_->resize(w, h);
     }
 }
 
 void Surface::beginFrame() {
-    device_->beginFrame();
-    if (context_) {
-        context_->beginFrame();
+    device_.beginFrame();
+    if (backend_) {
+        backend_->beginFrame();
     }
 }
 
 void Surface::endFrame() {
-    device_->endFrame();
-}
-
-void Surface::submit(const Recording& recording) {
-    if (context_) {
-        context_->submit(recording);
-        return;
-    }
-    DeviceVisitor visitor(device_.get());
-    recording.accept(visitor);
+    device_.endFrame();
 }
 
 void Surface::flush() {
-    if (context_) {
-        auto recording = device_->finishRecording();
-        if (recording) {
-            context_->submit(*recording);
-        }
-        context_->flush();
+    auto recording = device_.finishRecording();
+    if (!recording) return;
+
+    if (backend_) {
+        DrawPass pass = DrawPass::create(*recording);
+        backend_->execute(*recording, pass);
     }
-    // Raster surfaces: no-op, pixels are already in the Pixmap
+}
+
+std::shared_ptr<Image> Surface::makeSnapshot() const {
+    if (pixmap_ && pixmap_->valid()) {
+        return Image::MakeFromPixmap(*pixmap_);
+    }
+    return nullptr;
+}
+
+bool Surface::isGPU() const {
+    // GPU if we have a backend but no pixmap
+    return backend_ != nullptr && pixmap_ == nullptr;
 }
 
 Pixmap* Surface::peekPixels() {
@@ -92,14 +117,13 @@ PixelData Surface::getPixelData() const {
 }
 
 std::unique_ptr<Recording> Surface::takeRecording() {
-    return device_->finishRecording();
+    return device_.finishRecording();
 }
 
 void Surface::setGlyphCache(GlyphCache* cache) {
-    if (context_) {
-        context_->setGlyphCache(cache);
+    if (backend_) {
+        backend_->setGlyphCache(cache);
     }
-    device_->setGlyphCache(cache);
 }
 
-}
+} // namespace ink

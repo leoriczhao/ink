@@ -26,6 +26,10 @@ void Canvas::drawText(Point p, std::string_view text, Color c) {
     device_->drawText(p, text, c);
 }
 
+void Canvas::drawImage(std::shared_ptr<Image> image, f32 x, f32 y) {
+    device_->drawImage(std::move(image), x, y);
+}
+
 void Canvas::save() {
     stack_.push_back(current_);
 }

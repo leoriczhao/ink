@@ -1,0 +1,62 @@
+[
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/pixmap.cpp.o -c /home/leoric/code/ink/src/pixmap.cpp",
+  "file": "/home/leoric/code/ink/src/pixmap.cpp",
+  "output": "CMakeFiles/ink.dir/src/pixmap.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/recording.cpp.o -c /home/leoric/code/ink/src/recording.cpp",
+  "file": "/home/leoric/code/ink/src/recording.cpp",
+  "output": "CMakeFiles/ink.dir/src/recording.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/draw_pass.cpp.o -c /home/leoric/code/ink/src/draw_pass.cpp",
+  "file": "/home/leoric/code/ink/src/draw_pass.cpp",
+  "output": "CMakeFiles/ink.dir/src/draw_pass.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/device.cpp.o -c /home/leoric/code/ink/src/device.cpp",
+  "file": "/home/leoric/code/ink/src/device.cpp",
+  "output": "CMakeFiles/ink.dir/src/device.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/canvas.cpp.o -c /home/leoric/code/ink/src/canvas.cpp",
+  "file": "/home/leoric/code/ink/src/canvas.cpp",
+  "output": "CMakeFiles/ink.dir/src/canvas.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/surface.cpp.o -c /home/leoric/code/ink/src/surface.cpp",
+  "file": "/home/leoric/code/ink/src/surface.cpp",
+  "output": "CMakeFiles/ink.dir/src/surface.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/image.cpp.o -c /home/leoric/code/ink/src/image.cpp",
+  "file": "/home/leoric/code/ink/src/image.cpp",
+  "output": "CMakeFiles/ink.dir/src/image.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/cpu_backend.cpp.o -c /home/leoric/code/ink/src/cpu_backend.cpp",
+  "file": "/home/leoric/code/ink/src/cpu_backend.cpp",
+  "output": "CMakeFiles/ink.dir/src/cpu_backend.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/glyph_cache.cpp.o -c /home/leoric/code/ink/src/glyph_cache.cpp",
+  "file": "/home/leoric/code/ink/src/glyph_cache.cpp",
+  "output": "CMakeFiles/ink.dir/src/glyph_cache.cpp.o"
+},
+{
+  "directory": "/home/leoric/code/ink/build",
+  "command": "/usr/bin/g++ -DINK_HAS_GL=1 -I/home/leoric/code/ink/include -I/home/leoric/code/ink/third_party -g -std=gnu++17 -Wall -Wextra -Wpedantic -o CMakeFiles/ink.dir/src/gpu/gl/gl_backend.cpp.o -c /home/leoric/code/ink/src/gpu/gl/gl_backend.cpp",
+  "file": "/home/leoric/code/ink/src/gpu/gl/gl_backend.cpp",
+  "output": "CMakeFiles/ink.dir/src/gpu/gl/gl_backend.cpp.o"
+}
+]

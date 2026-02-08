@@ -3,9 +3,10 @@
 #include "ink/types.hpp"
 #include "ink/pixmap.hpp"
 #include "ink/canvas.hpp"
-#include "ink/context.hpp"
 #include "ink/device.hpp"
+#include "ink/backend.hpp"
 #include "ink/pixel_data.hpp"
+#include "ink/image.hpp"
 #include <memory>
 
 namespace ink {
@@ -15,21 +16,20 @@ class GlyphCache;
 class Surface {
 public:
     // Auto surface - tries GPU first, falls back to CPU
-    // Returns a valid surface, never nullptr (at minimum will return CPU raster)
     static std::unique_ptr<Surface> MakeAuto(i32 w, i32 h,
                                               PixelFormat fmt = PixelFormat::BGRA8888);
 
-    // Raster (CPU) surface - allocates internal pixel buffer
+    // CPU raster surface - allocates internal pixel buffer
     static std::unique_ptr<Surface> MakeRaster(i32 w, i32 h,
                                                 PixelFormat fmt = PixelFormat::BGRA8888);
 
-    // Raster (CPU) surface - wraps host-provided pixel buffer (zero-copy)
+    // CPU raster surface - wraps host-provided pixel buffer (zero-copy)
     static std::unique_ptr<Surface> MakeRasterDirect(const PixmapInfo& info, void* pixels);
 
-    // GPU surface - host must have GL context current
-    static std::unique_ptr<Surface> MakeGpu(std::unique_ptr<Context> context, i32 w, i32 h);
+    // GPU surface - host must have GL context current (future)
+    static std::unique_ptr<Surface> MakeGpu(std::unique_ptr<Backend> backend, i32 w, i32 h);
 
-    // Recording surface - for offscreen command recording
+    // Recording-only surface - no backend, just captures commands
     static std::unique_ptr<Surface> MakeRecording(i32 w, i32 h);
 
     ~Surface();
@@ -39,8 +39,10 @@ public:
     void resize(i32 w, i32 h);
     void beginFrame();
     void endFrame();
-    void submit(const Recording& recording);
     void flush();
+
+    // Create an immutable snapshot of current surface contents
+    std::shared_ptr<Image> makeSnapshot() const;
 
     // Pixel access (raster surfaces only, returns nullptr for GPU/recording)
     Pixmap* peekPixels();
@@ -50,19 +52,20 @@ public:
     PixelData getPixelData() const;
 
     // Check if this is a GPU-backed surface
-    bool isGPU() const { return context_ != nullptr; }
+    bool isGPU() const;
 
+    // Get the recording (for recording surfaces, or for inspection)
     std::unique_ptr<Recording> takeRecording();
+
     void setGlyphCache(GlyphCache* cache);
 
 private:
-    Surface(std::unique_ptr<Device> device,
-            std::unique_ptr<Context> context,
+    Surface(std::unique_ptr<Backend> backend,
             std::unique_ptr<Pixmap> pixmap);
 
-    std::unique_ptr<Device> device_;
+    Device device_;
     std::unique_ptr<Canvas> canvas_;
-    std::unique_ptr<Context> context_;
+    std::unique_ptr<Backend> backend_;
     std::unique_ptr<Pixmap> pixmap_;
 };
 

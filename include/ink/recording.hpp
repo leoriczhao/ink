@@ -9,79 +9,78 @@
 
 namespace ink {
 
-// Forward declaration
+// Forward declarations
 class DrawOpVisitor;
+class Image;
 
 struct DrawOp {
-    enum class Type {
+    enum class Type : u8 {
         FillRect,
         StrokeRect,
         Line,
         Polyline,
         Text,
+        DrawImage,
         SetClip,
         ClearClip
     };
-
-    Type type;
-    Rect rect = {};
-    Point p1 = {};
-    Point p2 = {};
-    std::vector<Point> points;
-    std::string text;
-    Color color = {};
-    f32 width = 1.0f;
 };
 
 // Arena allocator for DrawOp string and point data
 class DrawOpArena {
 public:
     explicit DrawOpArena(size_t initialCapacity = 4096);
-    
+
     // Allocate raw bytes, returns offset
     u32 allocate(size_t bytes);
-    
+
     // Store string, returns offset
     u32 storeString(std::string_view str);
-    
+
     // Store points array, returns offset
     u32 storePoints(const Point* pts, i32 count);
-    
+
     // Access stored data
     const char* getString(u32 offset) const;
     const Point* getPoints(u32 offset) const;
-    
+
     void reset();
-    
+
 private:
     std::vector<u8> data_;
 };
 
 // Compact DrawOp structure - 28 bytes
 struct CompactDrawOp {
-    DrawOp::Type type;      // 4 bytes (enum)
+    DrawOp::Type type;      // 1 byte
+    u8 padding[3];          // 3 bytes alignment
     Color color;            // 4 bytes
     f32 width;              // 4 bytes
-    
+
     union Data {
         struct { Rect rect; } fill;                           // 16 bytes
         struct { Rect rect; } stroke;                         // 16 bytes
         struct { Point p1; Point p2; } line;                  // 16 bytes
         struct { u32 offset; u32 count; } polyline;           // 8 bytes
         struct { Point pos; u32 offset; u32 len; } text;      // 16 bytes
+        struct { f32 x; f32 y; u32 imageIndex; } image;       // 12 bytes
         struct { Rect rect; } clip;                           // 16 bytes
 
         Data() : fill{{}} {}
     } data;                 // 16 bytes
 };
-// Total: 28 bytes
 
 class Recording {
 public:
-    Recording(std::vector<CompactDrawOp> ops, DrawOpArena arena);
+    Recording(std::vector<CompactDrawOp> ops, DrawOpArena arena,
+              std::vector<std::shared_ptr<Image>> images);
 
     const std::vector<CompactDrawOp>& ops() const { return ops_; }
     const DrawOpArena& arena() const { return arena_; }
+    const std::vector<std::shared_ptr<Image>>& images() const { return images_; }
+
+    // Get image by index
+    const Image* getImage(u32 index) const;
 
     // Accept visitor for traversing operations
     void accept(DrawOpVisitor& visitor) const;
@@ -89,6 +88,7 @@ public:
 private:
     std::vector<CompactDrawOp> ops_;
     DrawOpArena arena_;
+    std::vector<std::shared_ptr<Image>> images_;
 };
 
 class Recorder {
@@ -100,6 +100,7 @@ public:
     void drawLine(Point p1, Point p2, Color c, f32 width);
     void drawPolyline(const Point* pts, i32 count, Color c, f32 width);
     void drawText(Point p, std::string_view text, Color c);
+    void drawImage(std::shared_ptr<Image> image, f32 x, f32 y);
     void setClip(Rect r);
     void clearClip();
 
@@ -108,6 +109,7 @@ public:
 private:
     std::vector<CompactDrawOp> ops_;
     DrawOpArena arena_;
+    std::vector<std::shared_ptr<Image>> images_;
 };
 
 }
