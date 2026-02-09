@@ -28,23 +28,27 @@ This skill defines the development process for the ink 2D rendering library.
    ```
    Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
-3. **Build and test locally** before pushing:
+3. **Update docs (README) before pushing** if behavior/API/build/release process changed:
+   - Update `README.md` with any new API usage, build flags, workflow, or examples
+   - Keep README examples aligned with current code paths
+
+4. **Build and test locally** before pushing:
    ```
    cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
    cmake --build build -j$(nproc)
    ctest --test-dir build --output-on-failure
    ```
 
-4. **Push and create PR**:
+5. **Push and create PR**:
    ```
    git push -u origin feat/<name>
    gh pr create --base master --title "<type>: <description>" --body "## Summary\n- ..."
    ```
 
-5. **CI must pass** — the `ci` workflow runs lint + build + test on every PR.
+6. **CI must pass** — the `ci` workflow runs lint + build + test on every PR.
    PR cannot merge until the `ci` check passes (branch protection).
 
-6. **Merge** — squash merge into master via GitHub.
+7. **Merge** — squash merge into master via GitHub.
 
 ### Release Process
 
@@ -65,7 +69,7 @@ This skill defines the development process for the ink 2D rendering library.
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `ci.yml` | PR to master, push to master | lint (clang-format) + build + test |
+| `ci.yml` | PR to master, push to master | lint (clang-tidy) + build + test |
 | `release.yml` | push tag `v*` | build Release + test + package + GitHub Release |
 
 ### Code Conventions
