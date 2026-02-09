@@ -181,6 +181,7 @@ void CpuBackend::drawLineImpl(i32 x1, i32 y1, i32 x2, i32 y2, Color c) {
 void CpuBackend::drawImageImpl(const Image* image, f32 x, f32 y) {
     if (!target_ || !target_->valid()) return;
     if (!image || !image->valid()) return;
+    if (!image->isCpuBacked()) return;
 
     i32 dstX = i32(x);
     i32 dstY = i32(y);

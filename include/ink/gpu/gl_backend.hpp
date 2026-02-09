@@ -38,6 +38,7 @@ public:
     void endFrame() override;
     void resize(i32 w, i32 h) override;
     void setGlyphCache(GlyphCache* cache) override;
+    std::shared_ptr<Image> makeSnapshot() const override;
 
     /**
      * Read pixels from the FBO into a CPU buffer.

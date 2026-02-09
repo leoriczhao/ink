@@ -57,6 +57,13 @@ public:
      * Set the glyph cache for text rendering.
      */
     virtual void setGlyphCache(GlyphCache* cache) { (void)cache; }
+
+    /**
+     * Create an immutable image snapshot of the backend render target.
+     * CPU backends may return nullptr because Surface can snapshot directly
+     * from Pixmap. GPU backends should return a GPU-backed Image when possible.
+     */
+    virtual std::shared_ptr<Image> makeSnapshot() const { return nullptr; }
 };
 
 } // namespace ink
