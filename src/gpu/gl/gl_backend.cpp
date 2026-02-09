@@ -4,6 +4,7 @@
 // Requires OpenGL 3.3+ core profile.
 
 #include "ink/gpu/gl_backend.hpp"
+#include "ink/gpu/gpu_context.hpp"
 
 #if INK_HAS_GL
 
@@ -186,6 +187,7 @@ struct GLBackend::Impl {
     void destroy();
     void createFBO(i32 w, i32 h);
     void destroyFBO();
+    std::shared_ptr<Image> makeSnapshotImage() const;
 
     void flushColorBatch();
     void flushTexBatch(GLuint texId);
@@ -200,17 +202,6 @@ bool GLBackend::Impl::init(i32 w, i32 h, bool defaultFBO) {
     width = w;
     height = h;
     useDefaultFBO = defaultFBO;
-
-    // Initialize GLEW (safe to call multiple times)
-    glewExperimental = GL_TRUE;
-    GLenum err = glewInit();
-    if (err != GLEW_OK) {
-        std::fprintf(stderr, "ink GLBackend: GLEW init failed: %s\n",
-                     glewGetErrorString(err));
-        return false;
-    }
-    // Clear any GL error from glewInit
-    while (glGetError() != GL_NO_ERROR) {}
 
     // Create shader programs
     colorProgram = createProgram(kColorVertSrc, kColorFragSrc);
@@ -308,6 +299,52 @@ void GLBackend::Impl::destroy() {
     if (texVAO) { glDeleteVertexArrays(1, &texVAO); texVAO = 0; }
     if (texVBO) { glDeleteBuffers(1, &texVBO); texVBO = 0; }
     if (tempTexture) { glDeleteTextures(1, &tempTexture); tempTexture = 0; }
+}
+
+std::shared_ptr<Image> GLBackend::Impl::makeSnapshotImage() const {
+    if (width <= 0 || height <= 0) return nullptr;
+
+    GLuint snapshotTexture = 0;
+    glGenTextures(1, &snapshotTexture);
+    if (snapshotTexture == 0) return nullptr;
+
+    glBindTexture(GL_TEXTURE_2D, snapshotTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    GLuint dstFbo = 0;
+    glGenFramebuffers(1, &dstFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, snapshotTexture, 0);
+
+    GLuint srcFbo = useDefaultFBO ? 0 : fbo;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
+
+    glBlitFramebuffer(0, 0, width, height,
+                      0, 0, width, height,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    glDeleteFramebuffers(1, &dstFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, srcFbo);
+
+    auto textureOwner = std::shared_ptr<GLuint>(new GLuint(snapshotTexture),
+        [](GLuint* tex) {
+            if (tex && *tex) {
+                glDeleteTextures(1, tex);
+            }
+            delete tex;
+        });
+
+    return Image::MakeFromGLTexture(snapshotTexture,
+                                    width,
+                                    height,
+                                    PixelFormat::RGBA8888,
+                                    textureOwner);
 }
 
 // ============================================================
@@ -413,8 +450,12 @@ void GLBackend::Impl::flushTexBatch(GLuint texId) {
 // GLBackend public API
 // ============================================================
 
-GLBackend::GLBackend(i32 w, i32 h, bool useDefaultFBO)
-    : impl_(std::make_unique<Impl>()) {
+GLBackend::GLBackend(std::shared_ptr<GpuContext> gpuContext,
+                     i32 w,
+                     i32 h,
+                     bool useDefaultFBO)
+    : impl_(std::make_unique<Impl>()),
+      gpuContext_(std::move(gpuContext)) {
     impl_->init(w, h, useDefaultFBO);
 }
 
@@ -422,12 +463,24 @@ GLBackend::~GLBackend() {
     if (impl_) impl_->destroy();
 }
 
+std::unique_ptr<Backend> GLBackend::Make(std::shared_ptr<GpuContext> gpuContext, i32 w, i32 h) {
+    if (!gpuContext || !gpuContext->valid()) return nullptr;
+    return std::unique_ptr<Backend>(new GLBackend(std::move(gpuContext), w, h, false));
+}
+
 std::unique_ptr<Backend> GLBackend::Make(i32 w, i32 h) {
-    return std::unique_ptr<Backend>(new GLBackend(w, h, false));
+    return Make(GpuContext::MakeGLFromCurrent(), w, h);
+}
+
+std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuContext,
+                                                i32 w,
+                                                i32 h) {
+    if (!gpuContext || !gpuContext->valid()) return nullptr;
+    return std::unique_ptr<Backend>(new GLBackend(std::move(gpuContext), w, h, true));
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(i32 w, i32 h) {
-    return std::unique_ptr<Backend>(new GLBackend(w, h, true));
+    return MakeDefault(GpuContext::MakeGLFromCurrent(), w, h);
 }
 
 void GLBackend::beginFrame() {
@@ -460,6 +513,10 @@ void GLBackend::resize(i32 w, i32 h) {
 
 void GLBackend::setGlyphCache(GlyphCache* cache) {
     impl_->glyphCache = cache;
+}
+
+std::shared_ptr<Image> GLBackend::makeSnapshot() const {
+    return impl_->makeSnapshotImage();
 }
 
 void GLBackend::execute(const Recording& recording, const DrawPass& pass) {
@@ -556,15 +613,13 @@ void GLBackend::execute(const Recording& recording, const DrawPass& pass) {
 
             const Image* image = recording.getImage(op.data.image.imageIndex);
             if (image && image->valid()) {
-                // Upload image pixels to temp texture
-                glBindTexture(GL_TEXTURE_2D, impl_->tempTexture);
-                GLenum pixelFmt = (image->format() == PixelFormat::BGRA8888)
-                                  ? GL_BGRA : GL_RGBA;
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                             image->width(), image->height(), 0,
-                             pixelFmt, GL_UNSIGNED_BYTE, image->pixels());
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                GLuint texId = 0;
+                if (image->isGpuBacked()) {
+                    texId = image->glTextureId();
+                } else if (gpuContext_) {
+                    texId = gpuContext_->resolveImageTexture(image);
+                }
+                if (texId == 0) break;
 
                 float x = op.data.image.x;
                 float y = op.data.image.y;
@@ -572,7 +627,7 @@ void GLBackend::execute(const Recording& recording, const DrawPass& pass) {
                 float h = float(image->height());
                 impl_->pushTexQuad(x, y, x + w, y + h,
                                    0.0f, 0.0f, 1.0f, 1.0f);
-                impl_->flushTexBatch(impl_->tempTexture);
+                impl_->flushTexBatch(texId);
             }
             break;
         }

@@ -91,6 +91,9 @@ std::shared_ptr<Image> Surface::makeSnapshot() const {
     if (pixmap_ && pixmap_->valid()) {
         return Image::MakeFromPixmap(*pixmap_);
     }
+    if (backend_) {
+        return backend_->makeSnapshot();
+    }
     return nullptr;
 }
 

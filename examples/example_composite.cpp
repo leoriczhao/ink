@@ -5,7 +5,7 @@
  *   - CPU surface for background grid
  *   - GPU surface for waveform rendering
  *   - GPU surface for UI overlay
- *   - Compositing all 3 layers via drawImage onto a final CPU surface
+ *   - Compositing all 3 layers via drawImage onto a final surface
  *
  * Build:
  *   cmake -B build -DINK_BUILD_EXAMPLES=ON -DINK_ENABLE_GL=ON && cmake --build build
@@ -22,6 +22,7 @@
 
 #if INK_HAS_GL
 #include <ink/gpu/gl_backend.hpp>
+#include <ink/gpu/gpu_context.hpp>
 #include <EGL/egl.h>
 #endif
 
@@ -67,6 +68,7 @@ int main() {
     bool hasGPU = (display != EGL_NO_DISPLAY);
     EGLContext eglCtx = EGL_NO_CONTEXT;
     EGLSurface eglSurf = EGL_NO_SURFACE;
+    std::shared_ptr<ink::GpuContext> gpuContext;
 
     if (hasGPU) {
         eglInitialize(display, nullptr, nullptr);
@@ -85,7 +87,19 @@ int main() {
         eglBindAPI(EGL_OPENGL_API);
         eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
         eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-        std::printf("GPU: EGL context created\n");
+        gpuContext = ink::GpuContext::MakeGLFromCurrent();
+        if (!gpuContext) {
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(display, eglCtx);
+            eglDestroySurface(display, eglSurf);
+            eglTerminate(display);
+            eglCtx = EGL_NO_CONTEXT;
+            eglSurf = EGL_NO_SURFACE;
+            hasGPU = false;
+            std::printf("GPU: failed to create ink::GpuContext, fallback to CPU\n");
+        } else {
+            std::printf("GPU: EGL + ink::GpuContext created\n");
+        }
     } else {
         std::printf("GPU: EGL not available, using CPU for all layers\n");
     }
@@ -117,15 +131,10 @@ int main() {
     // Layer 2: Waveform (GPU if available, else CPU)
     // ---------------------------------------------------------------
     std::unique_ptr<ink::Surface> waveLayer;
-    ink::Pixmap wavePixmap;  // for GPU readback
-#if INK_HAS_GL
-    ink::GLBackend* waveBackendPtr = nullptr;
-#endif
 
     if (hasGPU) {
 #if INK_HAS_GL
-        auto wb = ink::GLBackend::Make(W, H);
-        waveBackendPtr = static_cast<ink::GLBackend*>(wb.get());
+        auto wb = ink::GLBackend::Make(gpuContext, W, H);
         waveLayer = ink::Surface::MakeGpu(std::move(wb), W, H);
 #endif
     } else {
@@ -163,14 +172,10 @@ int main() {
     // Layer 3: UI overlay (GPU if available, else CPU)
     // ---------------------------------------------------------------
     std::unique_ptr<ink::Surface> uiLayer;
-#if INK_HAS_GL
-    ink::GLBackend* uiBackendPtr = nullptr;
-#endif
 
     if (hasGPU) {
 #if INK_HAS_GL
-        auto ub = ink::GLBackend::Make(W, H);
-        uiBackendPtr = static_cast<ink::GLBackend*>(ub.get());
+        auto ub = ink::GLBackend::Make(gpuContext, W, H);
         uiLayer = ink::Surface::MakeGpu(std::move(ub), W, H);
 #endif
     } else {
@@ -205,38 +210,32 @@ int main() {
     std::printf("Layer 3 (UI overlay): %s rendered\n", hasGPU ? "GPU" : "CPU");
 
     // ---------------------------------------------------------------
-    // Create snapshots for compositing
-    // For GPU surfaces, readback pixels and create Image from Pixmap
-    // For CPU surfaces, just use makeSnapshot()
+    // Create snapshots for compositing.
+    // CPU layers produce CPU-backed images; GPU layers produce GPU-backed images.
     // ---------------------------------------------------------------
     auto bgSnap = bgLayer->makeSnapshot();
+    auto waveSnap = waveLayer->makeSnapshot();
+    auto uiSnap = uiLayer->makeSnapshot();
 
-    std::shared_ptr<ink::Image> waveSnap;
-    std::shared_ptr<ink::Image> uiSnap;
+    // ---------------------------------------------------------------
+    // Composite all layers onto final surface.
+    // In GPU mode this stays fully on-GPU (no per-layer readback).
+    // ---------------------------------------------------------------
+    std::unique_ptr<ink::Surface> finalSurface;
+#if INK_HAS_GL
+    ink::GLBackend* finalBackendPtr = nullptr;
+#endif
 
     if (hasGPU) {
 #if INK_HAS_GL
-        // GPU -> CPU readback for waveform layer
-        std::vector<ink::u8> buf(W * H * 4);
-        auto tmpPm = ink::Pixmap::Alloc(ink::PixmapInfo::Make(W, H, ink::PixelFormat::BGRA8888));
-
-        waveBackendPtr->readPixels(buf.data(), 0, 0, W, H);
-        gpuReadbackToPixmap(tmpPm, buf.data(), W, H);
-        waveSnap = ink::Image::MakeFromPixmap(tmpPm);
-
-        uiBackendPtr->readPixels(buf.data(), 0, 0, W, H);
-        gpuReadbackToPixmap(tmpPm, buf.data(), W, H);
-        uiSnap = ink::Image::MakeFromPixmap(tmpPm);
+        auto fb = ink::GLBackend::Make(gpuContext, W, H);
+        finalBackendPtr = static_cast<ink::GLBackend*>(fb.get());
+        finalSurface = ink::Surface::MakeGpu(std::move(fb), W, H);
 #endif
     } else {
-        waveSnap = waveLayer->makeSnapshot();
-        uiSnap = uiLayer->makeSnapshot();
+        finalSurface = ink::Surface::MakeRaster(W, H);
     }
 
-    // ---------------------------------------------------------------
-    // Composite all layers onto final CPU surface
-    // ---------------------------------------------------------------
-    auto finalSurface = ink::Surface::MakeRaster(W, H);
     finalSurface->beginFrame();
     {
         auto* c = finalSurface->canvas();
@@ -247,8 +246,18 @@ int main() {
     finalSurface->endFrame();
     finalSurface->flush();
 
-    auto* pm = finalSurface->peekPixels();
-    if (pm) writePPM("composite_output.ppm", *pm);
+    if (hasGPU) {
+#if INK_HAS_GL
+        std::vector<ink::u8> buf(W * H * 4);
+        auto tmpPm = ink::Pixmap::Alloc(ink::PixmapInfo::Make(W, H, ink::PixelFormat::BGRA8888));
+        finalBackendPtr->readPixels(buf.data(), 0, 0, W, H);
+        gpuReadbackToPixmap(tmpPm, buf.data(), W, H);
+        writePPM("composite_output.ppm", tmpPm);
+#endif
+    } else {
+        auto* pm = finalSurface->peekPixels();
+        if (pm) writePPM("composite_output.ppm", *pm);
+    }
 
     std::printf("\nCompositing: 3 layers -> drawImage -> final surface\n");
 

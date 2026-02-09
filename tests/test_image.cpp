@@ -127,3 +127,23 @@ TEST(Image, StrideMatchesSourceBGRA) {
     EXPECT_EQ(img->stride(), pm.stride());
     EXPECT_EQ(img->format(), PixelFormat::BGRA8888);
 }
+
+// --- MakeFromGLTexture ---
+
+TEST(Image, MakeFromGLTextureValidReturnsNonNull) {
+    auto img = Image::MakeFromGLTexture(42, 32, 16, PixelFormat::RGBA8888);
+    ASSERT_NE(img, nullptr);
+    EXPECT_TRUE(img->valid());
+    EXPECT_TRUE(img->isGpuBacked());
+    EXPECT_FALSE(img->isCpuBacked());
+    EXPECT_EQ(img->glTextureId(), 42u);
+    EXPECT_EQ(img->width(), 32);
+    EXPECT_EQ(img->height(), 16);
+    EXPECT_EQ(img->pixels(), nullptr);
+}
+
+TEST(Image, MakeFromGLTextureInvalidReturnsNull) {
+    EXPECT_EQ(Image::MakeFromGLTexture(0, 32, 16), nullptr);
+    EXPECT_EQ(Image::MakeFromGLTexture(11, 0, 16), nullptr);
+    EXPECT_EQ(Image::MakeFromGLTexture(11, 32, 0), nullptr);
+}

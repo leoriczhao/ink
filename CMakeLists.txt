@@ -22,6 +22,7 @@ set(INK_CORE_SOURCES
     src/image.cpp
     src/cpu_backend.cpp
     src/glyph_cache.cpp
+    src/gpu/gl/gpu_context.cpp
 )
 
 # --- Create library ---
