@@ -6,8 +6,74 @@ on:
   push:
     branches: [master]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ci:
+  format:
+    name: Format (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Check formatting (changed files only)
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE_SHA" ]; then
+            BASE_SHA=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          FILES=$(git diff --name-only "$BASE_SHA"...HEAD | \
+            grep -E '^(include|src|tests|examples)/.*\.(h|hpp|c|cc|cpp)$' || true)
+
+          if [ -n "$FILES" ]; then
+            echo "$FILES" | xargs clang-format --dry-run --Werror
+          else
+            echo "No C/C++ source changes to format-check."
+          fi
+
+  build-test:
+    name: Build & Test (${{ matrix.compiler }}, ${{ matrix.build_type }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++ clang
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+          CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DINK_BUILD_TESTS=ON \
+            -DINK_ENABLE_GL=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  clang-tidy:
+    name: clang-tidy (gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,20 +81,57 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang-tidy
+          sudo apt-get install -y cmake ninja-build clang clang-tidy
 
       - name: Configure
-        run: cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DINK_BUILD_TESTS=ON \
+            -DINK_ENABLE_GL=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy (core src only)
+        run: |
+          find src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) ! -path 'src/gpu/*' | \
+            xargs -r clang-tidy -p build --warnings-as-errors='*' \
+              --checks='-*,bugprone-*,performance-*,misc-unused-*,-bugprone-easily-swappable-parameters,-bugprone-narrowing-conversions,-bugprone-implicit-widening-of-multiplication-result'
+
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DINK_BUILD_TESTS=ON \
+            -DINK_ENABLE_GL=OFF \
+            -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+            -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined' \
+            -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
 
       - name: Build
-        run: cmake --build build -j$(nproc)
-
-      - name: Lint - clang-tidy
-        run: |
-          find src/ -name '*.cpp' ! -path 'src/gpu/*' | \
-            xargs clang-tidy -p build --warnings-as-errors='*' \
-              --checks='-*,bugprone-*,performance-*,misc-unused-*' \
-              2>&1 || true
+        run: cmake --build build --parallel
 
       - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1
         run: ctest --test-dir build --output-on-failure
