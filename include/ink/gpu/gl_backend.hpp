@@ -6,6 +6,8 @@
 
 namespace ink {
 
+class GpuContext;
+
 /**
  * GLBackend - OpenGL rendering backend.
  *
@@ -23,12 +25,20 @@ public:
      * Create a GLBackend that renders to an internal FBO.
      * Host must have a current GL context.
      */
+    static std::unique_ptr<Backend> Make(std::shared_ptr<GpuContext> gpuContext, i32 w, i32 h);
+
+    // Convenience overload that binds to the currently active host GL context.
     static std::unique_ptr<Backend> Make(i32 w, i32 h);
 
     /**
      * Create a GLBackend that renders to the default framebuffer (fbo=0).
      * Useful when the host wants ink to draw directly to the window backbuffer.
      */
+    static std::unique_ptr<Backend> MakeDefault(std::shared_ptr<GpuContext> gpuContext,
+                                                i32 w,
+                                                i32 h);
+
+    // Convenience overload that binds to the currently active host GL context.
     static std::unique_ptr<Backend> MakeDefault(i32 w, i32 h);
 
     ~GLBackend() override;
@@ -61,8 +71,9 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::shared_ptr<GpuContext> gpuContext_;
 
-    GLBackend(i32 w, i32 h, bool useDefaultFBO);
+    GLBackend(std::shared_ptr<GpuContext> gpuContext, i32 w, i32 h, bool useDefaultFBO);
 };
 
 } // namespace ink

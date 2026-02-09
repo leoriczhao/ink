@@ -4,6 +4,7 @@
 // Requires OpenGL 3.3+ core profile.
 
 #include "ink/gpu/gl_backend.hpp"
+#include "ink/gpu/gpu_context.hpp"
 
 #if INK_HAS_GL
 
@@ -18,8 +19,6 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
-#include <unordered_map>
-#include <cstdint>
 
 namespace ink {
 
@@ -184,22 +183,10 @@ struct GLBackend::Impl {
     // Texture cache for drawImage
     GLuint tempTexture = 0;
 
-    struct CachedCpuTexture {
-        GLuint texture = 0;
-        i32 width = 0;
-        i32 height = 0;
-        PixelFormat format = PixelFormat::BGRA8888;
-    };
-
-    // Cache CPU-backed images as GL textures by immutable image id.
-    std::unordered_map<u64, CachedCpuTexture> cpuImageCache;
-
     bool init(i32 w, i32 h, bool defaultFBO);
     void destroy();
     void createFBO(i32 w, i32 h);
     void destroyFBO();
-    GLuint cacheCpuImageTexture(const Image* image);
-    GLuint resolveImageTexture(const Image* image);
     std::shared_ptr<Image> makeSnapshotImage() const;
 
     void flushColorBatch();
@@ -215,17 +202,6 @@ bool GLBackend::Impl::init(i32 w, i32 h, bool defaultFBO) {
     width = w;
     height = h;
     useDefaultFBO = defaultFBO;
-
-    // Initialize GLEW (safe to call multiple times)
-    glewExperimental = GL_TRUE;
-    GLenum err = glewInit();
-    if (err != GLEW_OK) {
-        std::fprintf(stderr, "ink GLBackend: GLEW init failed: %s\n",
-                     glewGetErrorString(err));
-        return false;
-    }
-    // Clear any GL error from glewInit
-    while (glGetError() != GL_NO_ERROR) {}
 
     // Create shader programs
     colorProgram = createProgram(kColorVertSrc, kColorFragSrc);
@@ -316,12 +292,6 @@ void GLBackend::Impl::destroyFBO() {
 
 void GLBackend::Impl::destroy() {
     destroyFBO();
-    for (auto& entry : cpuImageCache) {
-        if (entry.second.texture) {
-            glDeleteTextures(1, &entry.second.texture);
-        }
-    }
-    cpuImageCache.clear();
     if (colorProgram) { glDeleteProgram(colorProgram); colorProgram = 0; }
     if (texProgram) { glDeleteProgram(texProgram); texProgram = 0; }
     if (colorVAO) { glDeleteVertexArrays(1, &colorVAO); colorVAO = 0; }
@@ -329,47 +299,6 @@ void GLBackend::Impl::destroy() {
     if (texVAO) { glDeleteVertexArrays(1, &texVAO); texVAO = 0; }
     if (texVBO) { glDeleteBuffers(1, &texVBO); texVBO = 0; }
     if (tempTexture) { glDeleteTextures(1, &tempTexture); tempTexture = 0; }
-}
-
-GLuint GLBackend::Impl::cacheCpuImageTexture(const Image* image) {
-    if (!image || !image->isCpuBacked() || !image->valid()) return 0;
-
-    CachedCpuTexture cached;
-    glGenTextures(1, &cached.texture);
-    if (cached.texture == 0) return 0;
-
-    glBindTexture(GL_TEXTURE_2D, cached.texture);
-    GLenum pixelFmt = (image->format() == PixelFormat::BGRA8888) ? GL_BGRA : GL_RGBA;
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                 image->width(), image->height(), 0,
-                 pixelFmt, GL_UNSIGNED_BYTE, image->pixels());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    cached.width = image->width();
-    cached.height = image->height();
-    cached.format = image->format();
-
-    cpuImageCache[image->uniqueId()] = cached;
-    return cached.texture;
-}
-
-GLuint GLBackend::Impl::resolveImageTexture(const Image* image) {
-    if (!image || !image->valid()) return 0;
-
-    if (image->isGpuBacked()) {
-        return image->glTextureId();
-    }
-
-    const u64 imageId = image->uniqueId();
-    auto it = cpuImageCache.find(imageId);
-    if (it != cpuImageCache.end()) {
-        return it->second.texture;
-    }
-
-    return cacheCpuImageTexture(image);
 }
 
 std::shared_ptr<Image> GLBackend::Impl::makeSnapshotImage() const {
@@ -521,8 +450,12 @@ void GLBackend::Impl::flushTexBatch(GLuint texId) {
 // GLBackend public API
 // ============================================================
 
-GLBackend::GLBackend(i32 w, i32 h, bool useDefaultFBO)
-    : impl_(std::make_unique<Impl>()) {
+GLBackend::GLBackend(std::shared_ptr<GpuContext> gpuContext,
+                     i32 w,
+                     i32 h,
+                     bool useDefaultFBO)
+    : impl_(std::make_unique<Impl>()),
+      gpuContext_(std::move(gpuContext)) {
     impl_->init(w, h, useDefaultFBO);
 }
 
@@ -530,12 +463,24 @@ GLBackend::~GLBackend() {
     if (impl_) impl_->destroy();
 }
 
+std::unique_ptr<Backend> GLBackend::Make(std::shared_ptr<GpuContext> gpuContext, i32 w, i32 h) {
+    if (!gpuContext || !gpuContext->valid()) return nullptr;
+    return std::unique_ptr<Backend>(new GLBackend(std::move(gpuContext), w, h, false));
+}
+
 std::unique_ptr<Backend> GLBackend::Make(i32 w, i32 h) {
-    return std::unique_ptr<Backend>(new GLBackend(w, h, false));
+    return Make(GpuContext::MakeGLFromCurrent(), w, h);
+}
+
+std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuContext,
+                                                i32 w,
+                                                i32 h) {
+    if (!gpuContext || !gpuContext->valid()) return nullptr;
+    return std::unique_ptr<Backend>(new GLBackend(std::move(gpuContext), w, h, true));
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(i32 w, i32 h) {
-    return std::unique_ptr<Backend>(new GLBackend(w, h, true));
+    return MakeDefault(GpuContext::MakeGLFromCurrent(), w, h);
 }
 
 void GLBackend::beginFrame() {
@@ -668,7 +613,12 @@ void GLBackend::execute(const Recording& recording, const DrawPass& pass) {
 
             const Image* image = recording.getImage(op.data.image.imageIndex);
             if (image && image->valid()) {
-                GLuint texId = impl_->resolveImageTexture(image);
+                GLuint texId = 0;
+                if (image->isGpuBacked()) {
+                    texId = image->glTextureId();
+                } else if (gpuContext_) {
+                    texId = gpuContext_->resolveImageTexture(image);
+                }
                 if (texId == 0) break;
 
                 float x = op.data.image.x;

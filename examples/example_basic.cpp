@@ -22,6 +22,7 @@
 
 #if INK_HAS_GL
 #include <ink/gpu/gl_backend.hpp>
+#include <ink/gpu/gpu_context.hpp>
 #include <EGL/egl.h>
 #endif
 
@@ -136,8 +137,27 @@ int main() {
         EGLContext ctx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
         eglMakeCurrent(display, eglSurf, eglSurf, ctx);
 
+        // Bind ink GPU context to the currently active host GL context
+        auto gpuContext = ink::GpuContext::MakeGLFromCurrent();
+        if (!gpuContext) {
+            std::printf("GPU: failed to create ink::GpuContext\n");
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(display, ctx);
+            eglDestroySurface(display, eglSurf);
+            eglTerminate(display);
+            return 0;
+        }
+
         // Create GPU surface with ink
-        auto glBackend = ink::GLBackend::Make(W, H);
+        auto glBackend = ink::GLBackend::Make(gpuContext, W, H);
+        if (!glBackend) {
+            std::printf("GPU: failed to create GLBackend\n");
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(display, ctx);
+            eglDestroySurface(display, eglSurf);
+            eglTerminate(display);
+            return 0;
+        }
         auto* glBackendPtr = static_cast<ink::GLBackend*>(glBackend.get());
         auto surface = ink::Surface::MakeGpu(std::move(glBackend), W, H);
 

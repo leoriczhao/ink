@@ -29,6 +29,7 @@
 // Backend (rendering execution)
 #include "ink/backend.hpp"
 #include "ink/cpu_backend.hpp"
+#include "ink/gpu/gpu_context.hpp"
 
 // Pipeline (GPU pipeline stages)
 #include "ink/pipeline.hpp"

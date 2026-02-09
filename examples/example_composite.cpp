@@ -22,6 +22,7 @@
 
 #if INK_HAS_GL
 #include <ink/gpu/gl_backend.hpp>
+#include <ink/gpu/gpu_context.hpp>
 #include <EGL/egl.h>
 #endif
 
@@ -67,6 +68,7 @@ int main() {
     bool hasGPU = (display != EGL_NO_DISPLAY);
     EGLContext eglCtx = EGL_NO_CONTEXT;
     EGLSurface eglSurf = EGL_NO_SURFACE;
+    std::shared_ptr<ink::GpuContext> gpuContext;
 
     if (hasGPU) {
         eglInitialize(display, nullptr, nullptr);
@@ -85,7 +87,19 @@ int main() {
         eglBindAPI(EGL_OPENGL_API);
         eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
         eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-        std::printf("GPU: EGL context created\n");
+        gpuContext = ink::GpuContext::MakeGLFromCurrent();
+        if (!gpuContext) {
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglDestroyContext(display, eglCtx);
+            eglDestroySurface(display, eglSurf);
+            eglTerminate(display);
+            eglCtx = EGL_NO_CONTEXT;
+            eglSurf = EGL_NO_SURFACE;
+            hasGPU = false;
+            std::printf("GPU: failed to create ink::GpuContext, fallback to CPU\n");
+        } else {
+            std::printf("GPU: EGL + ink::GpuContext created\n");
+        }
     } else {
         std::printf("GPU: EGL not available, using CPU for all layers\n");
     }
@@ -120,7 +134,7 @@ int main() {
 
     if (hasGPU) {
 #if INK_HAS_GL
-        auto wb = ink::GLBackend::Make(W, H);
+        auto wb = ink::GLBackend::Make(gpuContext, W, H);
         waveLayer = ink::Surface::MakeGpu(std::move(wb), W, H);
 #endif
     } else {
@@ -161,7 +175,7 @@ int main() {
 
     if (hasGPU) {
 #if INK_HAS_GL
-        auto ub = ink::GLBackend::Make(W, H);
+        auto ub = ink::GLBackend::Make(gpuContext, W, H);
         uiLayer = ink::Surface::MakeGpu(std::move(ub), W, H);
 #endif
     } else {
@@ -214,7 +228,7 @@ int main() {
 
     if (hasGPU) {
 #if INK_HAS_GL
-        auto fb = ink::GLBackend::Make(W, H);
+        auto fb = ink::GLBackend::Make(gpuContext, W, H);
         finalBackendPtr = static_cast<ink::GLBackend*>(fb.get());
         finalSurface = ink::Surface::MakeGpu(std::move(fb), W, H);
 #endif
