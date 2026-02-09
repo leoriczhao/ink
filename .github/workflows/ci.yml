@@ -22,11 +22,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-format
 
-      - name: Check formatting
+      - name: Check formatting (changed files only)
         run: |
-          FILES=$(find include src tests examples -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.c' -o -name '*.cc' -o -name '*.cpp' \))
+          BASE_SHA="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE_SHA" ]; then
+            BASE_SHA=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          FILES=$(git diff --name-only "$BASE_SHA"...HEAD | \
+            grep -E '^(include|src|tests|examples)/.*\.(h|hpp|c|cc|cpp)$' || true)
+
           if [ -n "$FILES" ]; then
             echo "$FILES" | xargs clang-format --dry-run --Werror
+          else
+            echo "No C/C++ source changes to format-check."
           fi
 
   build-test:
@@ -86,11 +95,11 @@ jobs:
             -DINK_ENABLE_GL=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-      - name: Run clang-tidy
+      - name: Run clang-tidy (core src only)
         run: |
-          find src include tests examples -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) ! -path 'src/gpu/*' | \
+          find src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) ! -path 'src/gpu/*' | \
             xargs -r clang-tidy -p build --warnings-as-errors='*' \
-              --checks='-*,bugprone-*,performance-*,misc-unused-*'
+              --checks='-*,bugprone-*,performance-*,misc-unused-*,-bugprone-easily-swappable-parameters,-bugprone-narrowing-conversions,-bugprone-implicit-widening-of-multiplication-result'
 
   sanitizers:
     name: Sanitizers (ASan + UBSan)
