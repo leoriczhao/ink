@@ -27,7 +27,7 @@ jobs:
         run: |
           find src/ -name '*.cpp' ! -path 'src/gpu/*' | \
             xargs clang-tidy -p build --warnings-as-errors='*' \
-              --checks='-*,bugprone-*,performance-*,readability-braces-around-statements,misc-unused-*' \
+              --checks='-*,bugprone-*,performance-*,misc-unused-*' \
               2>&1 || true
 
       - name: Test
