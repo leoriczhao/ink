@@ -340,7 +340,7 @@ std::shared_ptr<Image> GLBackend::Impl::makeSnapshotImage() const {
             delete tex;
         });
 
-    return Image::MakeFromGLTexture(snapshotTexture,
+    return Image::MakeFromBackendTexture(static_cast<u64>(snapshotTexture),
                                     width,
                                     height,
                                     PixelFormat::RGBA8888,
@@ -469,7 +469,7 @@ std::unique_ptr<Backend> GLBackend::Make(std::shared_ptr<GpuContext> gpuContext,
 }
 
 std::unique_ptr<Backend> GLBackend::Make(i32 w, i32 h) {
-    return Make(GpuContext::MakeGLFromCurrent(), w, h);
+    return Make(GpuContext::MakeGL(), w, h);
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuContext,
@@ -480,7 +480,7 @@ std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuC
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(i32 w, i32 h) {
-    return MakeDefault(GpuContext::MakeGLFromCurrent(), w, h);
+    return MakeDefault(GpuContext::MakeGL(), w, h);
 }
 
 void GLBackend::beginFrame() {
@@ -615,9 +615,9 @@ void GLBackend::execute(const Recording& recording, const DrawPass& pass) {
             if (image && image->valid()) {
                 GLuint texId = 0;
                 if (image->isGpuBacked()) {
-                    texId = image->glTextureId();
+                    texId = static_cast<GLuint>(image->backendTextureHandle());
                 } else if (gpuContext_) {
-                    texId = gpuContext_->resolveImageTexture(image);
+                    texId = static_cast<GLuint>(gpuContext_->resolveImageTexture(image));
                 }
                 if (texId == 0) break;
 

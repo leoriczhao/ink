@@ -128,7 +128,7 @@ TEST(Image, StrideMatchesSourceBGRA) {
     EXPECT_EQ(img->format(), PixelFormat::BGRA8888);
 }
 
-// --- MakeFromGLTexture ---
+// --- MakeFromGLTexture / MakeFromBackendTexture ---
 
 TEST(Image, MakeFromGLTextureValidReturnsNonNull) {
     auto img = Image::MakeFromGLTexture(42, 32, 16, PixelFormat::RGBA8888);
@@ -137,6 +137,7 @@ TEST(Image, MakeFromGLTextureValidReturnsNonNull) {
     EXPECT_TRUE(img->isGpuBacked());
     EXPECT_FALSE(img->isCpuBacked());
     EXPECT_EQ(img->glTextureId(), 42u);
+    EXPECT_EQ(img->backendTextureHandle(), 42u);
     EXPECT_EQ(img->width(), 32);
     EXPECT_EQ(img->height(), 16);
     EXPECT_EQ(img->pixels(), nullptr);
@@ -146,4 +147,21 @@ TEST(Image, MakeFromGLTextureInvalidReturnsNull) {
     EXPECT_EQ(Image::MakeFromGLTexture(0, 32, 16), nullptr);
     EXPECT_EQ(Image::MakeFromGLTexture(11, 0, 16), nullptr);
     EXPECT_EQ(Image::MakeFromGLTexture(11, 32, 0), nullptr);
+}
+
+TEST(Image, MakeFromBackendTextureValidReturnsNonNull) {
+    auto img = Image::MakeFromBackendTexture(99, 64, 32, PixelFormat::RGBA8888);
+    ASSERT_NE(img, nullptr);
+    EXPECT_TRUE(img->valid());
+    EXPECT_TRUE(img->isGpuBacked());
+    EXPECT_EQ(img->backendTextureHandle(), 99u);
+    EXPECT_EQ(img->glTextureId(), 99u);  // convenience accessor
+    EXPECT_EQ(img->width(), 64);
+    EXPECT_EQ(img->height(), 32);
+}
+
+TEST(Image, MakeFromBackendTextureInvalidReturnsNull) {
+    EXPECT_EQ(Image::MakeFromBackendTexture(0, 32, 16), nullptr);
+    EXPECT_EQ(Image::MakeFromBackendTexture(11, 0, 16), nullptr);
+    EXPECT_EQ(Image::MakeFromBackendTexture(11, 32, 0), nullptr);
 }

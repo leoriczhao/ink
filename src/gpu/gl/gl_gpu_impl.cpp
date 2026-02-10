@@ -1,5 +1,10 @@
-#include "ink/gpu/gpu_context.hpp"
+// GLGpuImpl - OpenGL implementation of GpuImpl.
+//
+// Manages a CPU-image-to-GL-texture cache shared across GL surfaces.
+// Only compiled when INK_HAS_GL is defined.
 
+#include "gl_gpu_impl.hpp"
+#include "../gpu_impl.hpp"
 #include "ink/image.hpp"
 
 #if INK_HAS_GL
@@ -9,7 +14,32 @@
 
 namespace ink {
 
-struct GpuContext::Impl {
+class GLGpuImpl final : public GpuImpl {
+public:
+    ~GLGpuImpl() override {
+        for (auto& entry : cpuImageCache_) {
+            if (entry.second.texture != 0) {
+                glDeleteTextures(1, &entry.second.texture);
+            }
+        }
+        cpuImageCache_.clear();
+    }
+
+    u64 resolveImageTexture(const Image* image) override {
+        if (!image || !image->valid()) return 0;
+        if (image->isGpuBacked()) {
+            return image->backendTextureHandle();
+        }
+
+        const u64 id = image->uniqueId();
+        auto it = cpuImageCache_.find(id);
+        if (it != cpuImageCache_.end()) {
+            return it->second.texture;
+        }
+        return cacheCpuImageTexture(image);
+    }
+
+private:
     struct CachedCpuTexture {
         GLuint texture = 0;
         i32 width = 0;
@@ -17,18 +47,9 @@ struct GpuContext::Impl {
         PixelFormat format = PixelFormat::BGRA8888;
     };
 
-    std::unordered_map<u64, CachedCpuTexture> cpuImageCache;
+    std::unordered_map<u64, CachedCpuTexture> cpuImageCache_;
 
-    ~Impl() {
-        for (auto& entry : cpuImageCache) {
-            if (entry.second.texture != 0) {
-                glDeleteTextures(1, &entry.second.texture);
-            }
-        }
-        cpuImageCache.clear();
-    }
-
-    u32 cacheCpuImageTexture(const Image* image) {
+    u64 cacheCpuImageTexture(const Image* image) {
         if (!image || !image->isCpuBacked() || !image->valid()) return 0;
 
         CachedCpuTexture cached;
@@ -51,32 +72,12 @@ struct GpuContext::Impl {
         cached.height = image->height();
         cached.format = image->format();
 
-        cpuImageCache[image->uniqueId()] = cached;
+        cpuImageCache_[image->uniqueId()] = cached;
         return cached.texture;
-    }
-
-    u32 resolveImageTexture(const Image* image) {
-        if (!image || !image->valid()) return 0;
-        if (image->isGpuBacked()) {
-            return image->glTextureId();
-        }
-
-        const u64 id = image->uniqueId();
-        auto it = cpuImageCache.find(id);
-        if (it != cpuImageCache.end()) {
-            return it->second.texture;
-        }
-        return cacheCpuImageTexture(image);
     }
 };
 
-GpuContext::GpuContext(std::shared_ptr<Impl> impl)
-    : impl_(std::move(impl)) {
-}
-
-GpuContext::~GpuContext() = default;
-
-std::shared_ptr<GpuContext> GpuContext::MakeGLFromCurrent() {
+std::unique_ptr<GpuImpl> makeGLGpuImpl() {
     // GLEW requires this for core profiles and EGL environments.
     glewExperimental = GL_TRUE;
     const GLenum err = glewInit();
@@ -98,12 +99,7 @@ std::shared_ptr<GpuContext> GpuContext::MakeGLFromCurrent() {
         return nullptr;
     }
 
-    return std::shared_ptr<GpuContext>(new GpuContext(std::make_shared<Impl>()));
-}
-
-u32 GpuContext::resolveImageTexture(const Image* image) {
-    if (!impl_) return 0;
-    return impl_->resolveImageTexture(image);
+    return std::make_unique<GLGpuImpl>();
 }
 
 } // namespace ink
@@ -112,21 +108,8 @@ u32 GpuContext::resolveImageTexture(const Image* image) {
 
 namespace ink {
 
-struct GpuContext::Impl {
-};
-
-GpuContext::GpuContext(std::shared_ptr<Impl> impl)
-    : impl_(std::move(impl)) {
-}
-
-GpuContext::~GpuContext() = default;
-
-std::shared_ptr<GpuContext> GpuContext::MakeGLFromCurrent() {
+std::unique_ptr<GpuImpl> makeGLGpuImpl() {
     return nullptr;
-}
-
-u32 GpuContext::resolveImageTexture(const Image*) {
-    return 0;
 }
 
 } // namespace ink

@@ -22,7 +22,7 @@ set(INK_CORE_SOURCES
     src/image.cpp
     src/cpu_backend.cpp
     src/glyph_cache.cpp
-    src/gpu/gl/gpu_context.cpp
+    src/gpu/gpu_context.cpp
 )
 
 # --- Create library ---
@@ -33,6 +33,7 @@ target_include_directories(ink
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
@@ -43,6 +44,7 @@ if(INK_ENABLE_GL)
     if(OpenGL_FOUND AND GLEW_FOUND)
         target_sources(ink PRIVATE
             src/gpu/gl/gl_backend.cpp
+            src/gpu/gl/gl_gpu_impl.cpp
         )
         target_link_libraries(ink PUBLIC OpenGL::GL GLEW::GLEW)
         target_compile_definitions(ink PUBLIC INK_HAS_GL=1)

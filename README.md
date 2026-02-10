@@ -12,7 +12,16 @@ Canvas -> Device -> Recorder -> Recording -> DrawPass -> Backend
                                                      +-----+-----+
                                                      |           |
                                                  CpuBackend  GLBackend
-                                                 (software)  (OpenGL)
+                                                 (software)  (OpenGL 3.3+)
+                                                                |
+                                                            GpuContext
+                                                       (backend-agnostic)
+                                                                |
+                                                            GpuImpl
+                                                       (internal virtual)
+                                                                |
+                                                          GLGpuImpl
+                                                     (GL texture cache)
 ```
 
 - **Canvas** - User-facing drawing API with save/restore state stack and clip management
@@ -20,18 +29,19 @@ Canvas -> Device -> Recorder -> Recording -> DrawPass -> Backend
 - **Recording** - Immutable command buffer with arena-allocated variable data
 - **DrawPass** - Sorts operations by clip group, type, and color to minimize state changes
 - **Backend** - Executes recorded operations on a specific rendering target
+- **GpuContext** - Backend-agnostic shared GPU resource context, internally dispatches to backend-specific GpuImpl
 
 ### Backends
 
 | Backend | Status | Description |
 |---------|--------|-------------|
 | CpuBackend | Working | Software rasterization to a Pixmap buffer |
-| GLBackend | Stub | OpenGL rendering via FBO + shader pipelines |
+| GLBackend | Working | OpenGL 3.3+ rendering via FBO + GLSL shaders, vertex batching, scissor clipping, GPU snapshots |
 | VulkanBackend | Planned | Vulkan rendering |
 
 ### Surface compositing
 
-Surfaces can be composited together using `drawImage`:
+Surfaces can be composited together using `drawImage`. Snapshots are backend-aware: CPU surfaces produce CPU-backed images, and GPU surfaces produce GPU-backed images (texture handle, no readback required). When a CPU image is drawn on a GPU surface, it is automatically uploaded and cached via `GpuContext`.
 
 ```cpp
 // Render to offscreen surfaces
@@ -69,6 +79,15 @@ cmake -B build -DINK_ENABLE_GL=OFF
 
 # With OpenGL
 cmake -B build -DINK_ENABLE_GL=ON
+
+# Build with tests
+cmake -B build -DINK_BUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build
+
+# Build with examples
+cmake -B build -DINK_BUILD_EXAMPLES=ON
+cmake --build build
 ```
 
 ## Integration
@@ -82,7 +101,14 @@ target_link_libraries(my_app PRIVATE ink)
 
 ### Manual
 
-Add `include/` to your include path and link against the built library. The only required dependency is a C++17 compiler. GPU backends require their respective graphics libraries.
+Add `include/` to your include path and link against the built library.
+
+### Requirements
+
+- C++17 compiler (GCC, Clang, or MSVC)
+- CMake 3.16+
+- **Optional:** OpenGL + GLEW (for GL backend)
+- **Test-only:** Google Test (fetched automatically via CMake FetchContent)
 
 ## Usage
 
@@ -103,9 +129,9 @@ canvas->strokeRect({50, 50, 300, 200}, {0, 255, 0, 255});
 surface->endFrame();
 surface->flush();
 
-// Access pixels
+// Access pixels via PixelData (non-owning descriptor)
 auto pd = surface->getPixelData();
-// pd.data, pd.width, pd.height, pd.rowBytes are ready for display
+// pd.data, pd.width, pd.height, pd.rowBytes, pd.format are ready for display
 ```
 
 ### Text rendering
@@ -121,13 +147,37 @@ surface->endFrame();
 surface->flush();
 ```
 
+### GPU rendering
+
+```cpp
+#include <ink/ink.hpp>
+
+// Auto-select: tries GPU first, falls back to CPU
+auto surface = ink::Surface::MakeAuto(800, 600);
+
+// Or explicitly create a GPU surface with a shared context
+auto ctx = ink::GpuContext::MakeGL();
+auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
+
+// Drawing API is identical regardless of backend
+surface->beginFrame();
+auto* canvas = surface->canvas();
+canvas->fillRect({10, 10, 200, 100}, {255, 0, 0, 255});
+canvas->drawLine({0, 0}, {800, 600}, {255, 255, 255, 255}, 2.0f);
+surface->endFrame();
+surface->flush();
+
+// GPU snapshots produce GPU-backed images (no readback)
+auto snapshot = surface->makeSnapshot();
+```
+
 ### Multi-layer compositing
 
 ```cpp
 // Create layers
 auto background = ink::Surface::MakeRaster(800, 600);
 auto overlay = ink::Surface::MakeRaster(800, 600);
-auto final = ink::Surface::MakeRaster(800, 600);
+auto composite = ink::Surface::MakeRaster(800, 600);
 
 // Render background
 background->beginFrame();
@@ -145,11 +195,11 @@ overlay->flush();
 auto bgSnap = background->makeSnapshot();
 auto ovSnap = overlay->makeSnapshot();
 
-final->beginFrame();
-final->canvas()->drawImage(bgSnap, 0, 0);
-final->canvas()->drawImage(ovSnap, 0, 0);  // alpha-blended on top
-final->endFrame();
-final->flush();
+composite->beginFrame();
+composite->canvas()->drawImage(bgSnap, 0, 0);
+composite->canvas()->drawImage(ovSnap, 0, 0);  // alpha-blended on top
+composite->endFrame();
+composite->flush();
 ```
 
 ## Project structure
@@ -159,12 +209,15 @@ ink/
 ├── CMakeLists.txt
 ├── include/ink/
 │   ├── ink.hpp              # Public umbrella header
+│   ├── version.hpp          # Version info (major/minor/patch)
 │   ├── types.hpp            # Core types (Point, Rect, Color)
 │   ├── pixmap.hpp           # Pixel buffer management
-│   ├── image.hpp            # Immutable pixel snapshot for compositing
+│   ├── pixel_data.hpp       # Non-owning pixel data descriptor
+│   ├── image.hpp            # Immutable pixel snapshot (CPU or GPU-backed)
 │   ├── canvas.hpp           # User-facing drawing API
 │   ├── device.hpp           # Recording device
 │   ├── recording.hpp        # Command recording and compact ops
+│   ├── draw_op_visitor.hpp  # Visitor interface for draw operations
 │   ├── draw_pass.hpp        # Command sorting for optimal execution
 │   ├── backend.hpp          # Abstract rendering backend
 │   ├── cpu_backend.hpp      # CPU software rasterizer
@@ -172,12 +225,22 @@ ink/
 │   ├── surface.hpp          # Top-level rendering target
 │   ├── glyph_cache.hpp      # Font rasterization
 │   └── gpu/
-│       └── gl_backend.hpp   # OpenGL backend
+│       ├── gl_backend.hpp   # OpenGL 3.3+ backend
+│       └── gpu_context.hpp  # Backend-agnostic shared GPU resource context
 ├── src/
 │   ├── *.cpp                # Core implementations
 │   └── gpu/
+│       ├── gpu_context.cpp  # GpuContext shell (delegates to GpuImpl)
+│       ├── gpu_impl.hpp     # Internal abstract base for GPU backends
 │       └── gl/
-│           └── gl_backend.cpp
+│           ├── gl_backend.cpp
+│           ├── gl_gpu_impl.hpp
+│           └── gl_gpu_impl.cpp
+├── tests/
+│   └── *.cpp                # Google Test suite (9 test files)
+├── examples/
+│   ├── example_basic.cpp    # CPU + GPU drawing demo
+│   └── example_composite.cpp # Multi-layer compositing demo
 └── third_party/
     └── stb_truetype.h       # Font rasterization
 ```

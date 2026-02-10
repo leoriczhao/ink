@@ -87,7 +87,7 @@ int main() {
         eglBindAPI(EGL_OPENGL_API);
         eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
         eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-        gpuContext = ink::GpuContext::MakeGLFromCurrent();
+        gpuContext = ink::GpuContext::MakeGL();
         if (!gpuContext) {
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             eglDestroyContext(display, eglCtx);

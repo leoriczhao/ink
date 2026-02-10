@@ -6,34 +6,46 @@
 namespace ink {
 
 class Image;
-class GLBackend;
+class GpuImpl;
 
 /**
- * GpuContext - Lightweight shared GPU resource context.
+ * GpuContext - Backend-agnostic shared GPU resource context.
  *
- * Host owns platform GL context creation/switching (EGL/GLFW/etc).
- * Ink binds to the currently active GL context via MakeGLFromCurrent().
+ * Owns cross-surface shared GPU resources (e.g. CPU-image texture cache).
+ * Individual backends still own per-surface render targets.
  *
- * This object owns cross-surface shared GPU resources like CPU-image texture
- * cache. Individual GL backends still own per-surface render targets (FBOs).
+ * Create via backend-specific factory methods:
+ *   - MakeGL(): binds to the currently active host GL context
+ *   - MakeVulkan(): (future) accepts host-created Vulkan objects
+ *
+ * Internally dispatches to a backend-specific GpuImpl (hidden from public API).
  */
 class GpuContext {
 public:
-    static std::shared_ptr<GpuContext> MakeGLFromCurrent();
+    /**
+     * Create a GpuContext bound to the currently active OpenGL context.
+     * Host must have created and made current a GL context before calling.
+     * Returns nullptr if no GL context is current or GL init fails.
+     */
+    static std::shared_ptr<GpuContext> MakeGL();
 
     ~GpuContext();
 
-    bool valid() const { return impl_ != nullptr; }
+    bool valid() const;
 
 private:
-    struct Impl;
-    std::shared_ptr<Impl> impl_;
+    std::shared_ptr<GpuImpl> impl_;
 
-    explicit GpuContext(std::shared_ptr<Impl> impl);
+    explicit GpuContext(std::shared_ptr<GpuImpl> impl);
 
-    // GLBackend internal API
-    u32 resolveImageTexture(const Image* image);
+    /**
+     * Resolve an Image to a backend-specific GPU texture handle.
+     * Returns an opaque u64 (e.g. GLuint for GL, VkImage handle for Vulkan).
+     * Returns 0 on failure.
+     */
+    u64 resolveImageTexture(const Image* image);
 
+    // All GPU backends need access to resolveImageTexture.
     friend class GLBackend;
 };
 

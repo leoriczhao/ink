@@ -138,7 +138,7 @@ int main() {
         eglMakeCurrent(display, eglSurf, eglSurf, ctx);
 
         // Bind ink GPU context to the currently active host GL context
-        auto gpuContext = ink::GpuContext::MakeGLFromCurrent();
+        auto gpuContext = ink::GpuContext::MakeGL();
         if (!gpuContext) {
             std::printf("GPU: failed to create ink::GpuContext\n");
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
