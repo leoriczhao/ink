@@ -21,8 +21,8 @@
 #include <vector>
 
 #if INK_HAS_GL
-#include <ink/gpu/gl_backend.hpp>
-#include <ink/gpu/gpu_context.hpp>
+#include <ink/gpu/gl/gl_backend.hpp>
+#include <ink/gpu/gl/gl_context.hpp>
 #include <EGL/egl.h>
 #endif
 
@@ -87,7 +87,7 @@ int main() {
         eglBindAPI(EGL_OPENGL_API);
         eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
         eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-        gpuContext = ink::GpuContext::MakeGL();
+        gpuContext = ink::GpuContexts::MakeGL();
         if (!gpuContext) {
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             eglDestroyContext(display, eglCtx);

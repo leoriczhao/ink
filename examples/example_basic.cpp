@@ -21,8 +21,8 @@
 #include <cstring>
 
 #if INK_HAS_GL
-#include <ink/gpu/gl_backend.hpp>
-#include <ink/gpu/gpu_context.hpp>
+#include <ink/gpu/gl/gl_backend.hpp>
+#include <ink/gpu/gl/gl_context.hpp>
 #include <EGL/egl.h>
 #endif
 
@@ -138,7 +138,7 @@ int main() {
         eglMakeCurrent(display, eglSurf, eglSurf, ctx);
 
         // Bind ink GPU context to the currently active host GL context
-        auto gpuContext = ink::GpuContext::MakeGL();
+        auto gpuContext = ink::GpuContexts::MakeGL();
         if (!gpuContext) {
             std::printf("GPU: failed to create ink::GpuContext\n");
             eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

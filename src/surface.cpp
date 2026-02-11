@@ -6,7 +6,7 @@
 #include "ink/image.hpp"
 
 #if INK_HAS_GL
-#include "ink/gpu/gl_backend.hpp"
+#include "ink/gpu/gl/gl_backend.hpp"
 #endif
 
 namespace ink {

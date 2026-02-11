@@ -1,13 +1,11 @@
 // GLGpuImpl - OpenGL implementation of GpuImpl.
 //
 // Manages a CPU-image-to-GL-texture cache shared across GL surfaces.
-// Only compiled when INK_HAS_GL is defined.
+// Only compiled when GL backend is enabled (controlled by CMake).
 
-#include "gl_gpu_impl.hpp"
-#include "../gpu_impl.hpp"
+#include "gpu/gpu_impl.hpp"
 #include "ink/image.hpp"
 
-#if INK_HAS_GL
 #include <GL/glew.h>
 #include <unordered_map>
 #include <cstdio>
@@ -78,15 +76,12 @@ private:
 };
 
 std::unique_ptr<GpuImpl> makeGLGpuImpl() {
-    // GLEW requires this for core profiles and EGL environments.
     glewExperimental = GL_TRUE;
     const GLenum err = glewInit();
-    // Clear any sticky errors introduced by glewInit.
     while (glGetError() != GL_NO_ERROR) {
     }
 
     if (err != GLEW_OK) {
-        // EGL setups can report non-fatal GLEW init errors; keep going if GL is alive.
         if (glGetString(GL_VERSION) == nullptr) {
             std::fprintf(stderr, "ink GpuContext: GLEW init failed: %s\n",
                          glewGetErrorString(err));
@@ -103,5 +98,3 @@ std::unique_ptr<GpuImpl> makeGLGpuImpl() {
 }
 
 } // namespace ink
-
-#endif // INK_HAS_GL

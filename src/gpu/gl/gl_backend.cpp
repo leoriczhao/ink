@@ -3,7 +3,8 @@
 // This file is only compiled when INK_HAS_GL is defined (via CMake).
 // Requires OpenGL 3.3+ core profile.
 
-#include "ink/gpu/gl_backend.hpp"
+#include "ink/gpu/gl/gl_backend.hpp"
+#include "ink/gpu/gl/gl_context.hpp"
 #include "ink/gpu/gpu_context.hpp"
 
 #if INK_HAS_GL
@@ -469,7 +470,7 @@ std::unique_ptr<Backend> GLBackend::Make(std::shared_ptr<GpuContext> gpuContext,
 }
 
 std::unique_ptr<Backend> GLBackend::Make(i32 w, i32 h) {
-    return Make(GpuContext::MakeGL(), w, h);
+    return Make(GpuContexts::MakeGL(), w, h);
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuContext,
@@ -480,7 +481,7 @@ std::unique_ptr<Backend> GLBackend::MakeDefault(std::shared_ptr<GpuContext> gpuC
 }
 
 std::unique_ptr<Backend> GLBackend::MakeDefault(i32 w, i32 h) {
-    return MakeDefault(GpuContext::MakeGL(), w, h);
+    return MakeDefault(GpuContexts::MakeGL(), w, h);
 }
 
 void GLBackend::beginFrame() {

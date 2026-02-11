@@ -156,7 +156,8 @@ surface->flush();
 auto surface = ink::Surface::MakeAuto(800, 600);
 
 // Or explicitly create a GPU surface with a shared context
-auto ctx = ink::GpuContext::MakeGL();
+#include <ink/gpu/gl/gl_context.hpp>
+auto ctx = ink::GpuContexts::MakeGL();
 auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
 
 // Drawing API is identical regardless of backend
@@ -225,16 +226,18 @@ ink/
 │   ├── surface.hpp          # Top-level rendering target
 │   ├── glyph_cache.hpp      # Font rasterization
 │   └── gpu/
-│       ├── gl_backend.hpp   # OpenGL 3.3+ backend
-│       └── gpu_context.hpp  # Backend-agnostic shared GPU resource context
+│       ├── gpu_context.hpp  # Backend-agnostic shared GPU resource context
+│       └── gl/
+│           ├── gl_context.hpp   # GpuContexts::MakeGL() factory
+│           └── gl_backend.hpp   # OpenGL 3.3+ backend
 ├── src/
 │   ├── *.cpp                # Core implementations
 │   └── gpu/
 │       ├── gpu_context.cpp  # GpuContext shell (delegates to GpuImpl)
 │       ├── gpu_impl.hpp     # Internal abstract base for GPU backends
 │       └── gl/
+│           ├── gl_context.cpp   # MakeGL() implementation
 │           ├── gl_backend.cpp
-│           ├── gl_gpu_impl.hpp
 │           └── gl_gpu_impl.cpp
 ├── tests/
 │   └── *.cpp                # Google Test suite (9 test files)

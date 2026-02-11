@@ -44,6 +44,7 @@ if(INK_ENABLE_GL)
     if(OpenGL_FOUND AND GLEW_FOUND)
         target_sources(ink PRIVATE
             src/gpu/gl/gl_backend.cpp
+            src/gpu/gl/gl_context.cpp
             src/gpu/gl/gl_gpu_impl.cpp
         )
         target_link_libraries(ink PUBLIC OpenGL::GL GLEW::GLEW)

@@ -31,6 +31,12 @@
 #include "ink/cpu_backend.hpp"
 #include "ink/gpu/gpu_context.hpp"
 
+// GL backend (conditional)
+#if INK_HAS_GL
+#include "ink/gpu/gl/gl_context.hpp"
+#include "ink/gpu/gl/gl_backend.hpp"
+#endif
+
 // Pipeline (GPU pipeline stages)
 #include "ink/pipeline.hpp"
 
