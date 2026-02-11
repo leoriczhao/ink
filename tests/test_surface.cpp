@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/surface.hpp>
 #include <cstring>
 #include <vector>
 

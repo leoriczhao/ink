@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/image.hpp>
 #include <cstring>
 
 using namespace ink;

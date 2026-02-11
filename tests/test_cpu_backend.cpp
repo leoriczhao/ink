@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/cpu_backend.hpp>
+#include <ink/draw_pass.hpp>
 #include <cstring>
 
 using namespace ink;

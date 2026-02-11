@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/draw_pass.hpp>
 
 #include <algorithm>
 #include <set>
