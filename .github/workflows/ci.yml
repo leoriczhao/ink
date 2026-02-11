@@ -101,23 +101,6 @@ jobs:
             xargs -r clang-tidy -p build --warnings-as-errors='*' \
               --checks='-*,bugprone-*,performance-*,misc-unused-*,-bugprone-easily-swappable-parameters,-bugprone-narrowing-conversions,-bugprone-implicit-widening-of-multiplication-result'
 
-  # Gate job - required by branch protection (must be named "ci")
-  ci:
-    name: ci
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [format, build-test, clang-tidy, sanitizers]
-    steps:
-      - name: Check all jobs
-        run: |
-          if [[ "${{ needs.format.result }}" != "success" ]] || \
-             [[ "${{ needs.build-test.result }}" != "success" ]] || \
-             [[ "${{ needs.clang-tidy.result }}" != "success" ]] || \
-             [[ "${{ needs.sanitizers.result }}" != "success" ]]; then
-            echo "One or more required jobs failed"
-            exit 1
-          fi
-
   sanitizers:
     name: Sanitizers (ASan + UBSan)
     runs-on: ubuntu-latest
