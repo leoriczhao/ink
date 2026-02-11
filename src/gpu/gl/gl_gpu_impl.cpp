@@ -104,14 +104,4 @@ std::unique_ptr<GpuImpl> makeGLGpuImpl() {
 
 } // namespace ink
 
-#else
-
-namespace ink {
-
-std::unique_ptr<GpuImpl> makeGLGpuImpl() {
-    return nullptr;
-}
-
-} // namespace ink
-
-#endif
+#endif // INK_HAS_GL
