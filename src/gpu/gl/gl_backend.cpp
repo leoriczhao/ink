@@ -3,9 +3,10 @@
 // This file is only compiled when INK_HAS_GL is defined (via CMake).
 // Requires OpenGL 3.3+ core profile.
 
-#include "ink/gpu/gl/gl_backend.hpp"
+#include "gl_backend.hpp"
 #include "ink/gpu/gl/gl_context.hpp"
 #include "ink/gpu/gpu_context.hpp"
+#include "../../backend.hpp"
 
 #if INK_HAS_GL
 

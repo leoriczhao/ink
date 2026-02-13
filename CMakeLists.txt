@@ -152,7 +152,6 @@ if(INK_BUILD_TESTS)
         tests/test_draw_pass.cpp
         tests/test_image.cpp
         tests/test_canvas.cpp
-        tests/test_cpu_backend.cpp
         tests/test_surface.cpp
         tests/test_composite.cpp
     )

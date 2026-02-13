@@ -4,13 +4,13 @@
 #include "ink/pixmap.hpp"
 #include "ink/canvas.hpp"
 #include "ink/device.hpp"
-#include "ink/backend.hpp"
 #include "ink/pixel_data.hpp"
 #include "ink/image.hpp"
 #include <memory>
 
 namespace ink {
 
+class Backend;
 class GlyphCache;
 class GpuContext;
 

@@ -1,274 +1,168 @@
 /**
- * example_composite.cpp - Multi-layer compositing (CPU + GPU mixed)
- *
- * Demonstrates:
- *   - CPU surface for background grid
- *   - GPU surface for waveform rendering
- *   - GPU surface for UI overlay
- *   - Compositing all 3 layers via drawImage onto a final surface
+ * example_composite.cpp - Multi-layer compositing with SDL2 display
  *
  * Build:
- *   cmake -B build -DINK_BUILD_EXAMPLES=ON -DINK_ENABLE_GL=ON && cmake --build build
+ *   cmake -B build -DINK_BUILD_EXAMPLES=ON && cmake --build build
  *   ./build/example_composite
- *
- * Output: composite_output.ppm
  */
 
 #include <ink/ink.hpp>
-#include <fstream>
 #include <cstdio>
 #include <cmath>
 #include <vector>
 
-#if INK_HAS_GL
-#include <ink/gpu/gl/gl_backend.hpp>
-#include <ink/gpu/gl/gl_context.hpp>
-#include <EGL/egl.h>
-#endif
+#include <SDL2/SDL.h>
 
-static void writePPM(const char* filename, const ink::Pixmap& pm) {
-    std::ofstream f(filename, std::ios::binary);
-    f << "P6\n" << pm.width() << " " << pm.height() << "\n255\n";
-    for (ink::i32 y = 0; y < pm.height(); ++y) {
-        const auto* row = static_cast<const ink::u32*>(pm.rowAddr(y));
-        for (ink::i32 x = 0; x < pm.width(); ++x) {
-            ink::u32 p = row[x];
-            f.put(char((p >> 16) & 0xFF));  // R
-            f.put(char((p >> 8) & 0xFF));   // G
-            f.put(char(p & 0xFF));           // B
-        }
-    }
-    std::printf("Written: %s (%dx%d)\n", filename, pm.width(), pm.height());
+static void drawBackground(ink::Canvas* c, int W, int H) {
+    using ink::f32;
+    c->fillRect({0, 0, f32(W), f32(H)}, {25, 25, 35, 255});
+    for (int x = 0; x < W; x += 40)
+        c->drawLine({f32(x), 0}, {f32(x), f32(H)}, {50, 50, 60, 255});
+    for (int y = 0; y < H; y += 40)
+        c->drawLine({0, f32(y)}, {f32(W), f32(y)}, {50, 50, 60, 255});
+    c->drawLine({0, f32(H/2)}, {f32(W), f32(H/2)}, {80, 80, 100, 255});
+    c->drawLine({f32(W/2), 0}, {f32(W/2), f32(H)}, {80, 80, 100, 255});
 }
 
-// Convert GPU readback (RGBA, bottom-up) to a CPU Pixmap (BGRA, top-down)
-static void gpuReadbackToPixmap(ink::Pixmap& dst, const ink::u8* rgba, int w, int h) {
-    for (int y = 0; y < h; ++y) {
-        auto* dstRow = static_cast<ink::u32*>(dst.rowAddr(y));
-        const auto* srcRow = rgba + (h - 1 - y) * w * 4;  // flip Y
-        for (int x = 0; x < w; ++x) {
-            ink::u8 r = srcRow[x * 4 + 0];
-            ink::u8 g = srcRow[x * 4 + 1];
-            ink::u8 b = srcRow[x * 4 + 2];
-            ink::u8 a = srcRow[x * 4 + 3];
-            // BGRA format
-            dstRow[x] = (ink::u32(a) << 24) | (ink::u32(r) << 16) |
-                        (ink::u32(g) << 8) | ink::u32(b);
-        }
+static void drawWaveform(ink::Canvas* c, int W, int H, float t) {
+    using ink::f32;
+    const int N = W;
+    std::vector<ink::Point> wave(N);
+
+    for (int i = 0; i < N; ++i) {
+        float tt = f32(i) / f32(W) * 4.0f * 3.14159f + t;
+        wave[i] = {f32(i), f32(H/2) + std::sin(tt) * f32(H) * 0.3f};
     }
+    c->drawPolyline(wave.data(), N, {0, 200, 255, 220}, 2.0f);
+
+    for (int i = 0; i < N; ++i) {
+        float tt = f32(i) / f32(W) * 8.0f * 3.14159f + t * 1.5f;
+        wave[i] = {f32(i), f32(H/2) + std::sin(tt) * f32(H) * 0.1f};
+    }
+    c->drawPolyline(wave.data(), N, {255, 100, 50, 150}, 2.0f);
 }
 
-int main() {
+static void drawUI(ink::Canvas* c, int W, int H, float t) {
+    using ink::f32;
+
+    c->fillRect({10, 10, 180, 60}, {0, 0, 0, 160});
+    c->strokeRect({10, 10, 180, 60}, {100, 100, 120, 200});
+
+    f32 cx = f32(W/2), cy = f32(H/2);
+    c->drawLine({cx - 15, cy}, {cx + 15, cy}, {255, 255, 0, 200}, 2.0f);
+    c->drawLine({cx, cy - 15}, {cx, cy + 15}, {255, 255, 0, 200}, 2.0f);
+
+    c->fillRect({0, 0, 8, 8}, {255, 0, 0, 255});
+    c->fillRect({f32(W-8), 0, 8, 8}, {0, 255, 0, 255});
+    c->fillRect({0, f32(H-8), 8, 8}, {0, 0, 255, 255});
+    c->fillRect({f32(W-8), f32(H-8), 8, 8}, {255, 255, 0, 255});
+
+    f32 indicatorX = f32(W) * (0.5f + std::sin(t * 0.3f) * 0.4f);
+    c->fillRect({indicatorX, f32(H-8), 4, 8}, {255, 255, 255, 255});
+}
+
+int main(int argc, char* argv[]) {
     using ink::f32;
     const ink::i32 W = 600, H = 400;
 
-#if INK_HAS_GL
-    // ---- Initialize EGL for headless GPU rendering ----
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    bool hasGPU = (display != EGL_NO_DISPLAY);
-    EGLContext eglCtx = EGL_NO_CONTEXT;
-    EGLSurface eglSurf = EGL_NO_SURFACE;
-    std::shared_ptr<ink::GpuContext> gpuContext;
-
-    if (hasGPU) {
-        eglInitialize(display, nullptr, nullptr);
-        EGLint cfgAttrs[] = {
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-            EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-            EGL_NONE
-        };
-        EGLConfig config;
-        EGLint numCfg;
-        eglChooseConfig(display, cfgAttrs, &config, 1, &numCfg);
-        EGLint pbAttrs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
-        eglSurf = eglCreatePbufferSurface(display, config, pbAttrs);
-        eglBindAPI(EGL_OPENGL_API);
-        eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
-        eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-        gpuContext = ink::GpuContexts::MakeGL();
-        if (!gpuContext) {
-            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            eglDestroyContext(display, eglCtx);
-            eglDestroySurface(display, eglSurf);
-            eglTerminate(display);
-            eglCtx = EGL_NO_CONTEXT;
-            eglSurf = EGL_NO_SURFACE;
-            hasGPU = false;
-            std::printf("GPU: failed to create ink::GpuContext, fallback to CPU\n");
-        } else {
-            std::printf("GPU: EGL + ink::GpuContext created\n");
-        }
-    } else {
-        std::printf("GPU: EGL not available, using CPU for all layers\n");
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::printf("SDL_Init failed: %s\n", SDL_GetError());
+        return 1;
     }
-#else
-    bool hasGPU = false;
-    std::printf("GPU: GL backend not compiled, using CPU for all layers\n");
-#endif
 
-    // ---------------------------------------------------------------
-    // Layer 1: Background grid (CPU rendered)
-    // ---------------------------------------------------------------
+    SDL_Window* window = SDL_CreateWindow(
+        "ink - Multi-layer Compositing",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        W, H,
+        SDL_WINDOW_SHOWN
+    );
+    if (!window) {
+        std::printf("SDL_CreateWindow failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) {
+        std::printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+
+    SDL_Texture* texture = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING,
+        W, H
+    );
+
     auto bgLayer = ink::Surface::MakeRaster(W, H);
+    auto waveLayer = ink::Surface::MakeRaster(W, H);
+    auto uiLayer = ink::Surface::MakeRaster(W, H);
+    auto finalSurface = ink::Surface::MakeRaster(W, H);
+
     bgLayer->beginFrame();
-    {
-        auto* c = bgLayer->canvas();
-        c->fillRect({0, 0, f32(W), f32(H)}, {25, 25, 35, 255});
-        for (int x = 0; x < W; x += 40)
-            c->drawLine({f32(x), 0}, {f32(x), f32(H)}, {50, 50, 60, 255});
-        for (int y = 0; y < H; y += 40)
-            c->drawLine({0, f32(y)}, {f32(W), f32(y)}, {50, 50, 60, 255});
-        c->drawLine({0, f32(H/2)}, {f32(W), f32(H/2)}, {80, 80, 100, 255});
-        c->drawLine({f32(W/2), 0}, {f32(W/2), f32(H)}, {80, 80, 100, 255});
-    }
+    drawBackground(bgLayer->canvas(), W, H);
     bgLayer->endFrame();
     bgLayer->flush();
-    std::printf("Layer 1 (background): CPU rendered\n");
 
-    // ---------------------------------------------------------------
-    // Layer 2: Waveform (GPU if available, else CPU)
-    // ---------------------------------------------------------------
-    std::unique_ptr<ink::Surface> waveLayer;
+    std::printf("ink multi-layer compositing with SDL2 display\n");
+    std::printf("Press ESC or close window to exit\n");
 
-    if (hasGPU) {
-#if INK_HAS_GL
-        auto wb = ink::GLBackend::Make(gpuContext, W, H);
-        waveLayer = ink::Surface::MakeGpu(std::move(wb), W, H);
-#endif
-    } else {
-        waveLayer = ink::Surface::MakeRaster(W, H);
-    }
+    bool running = true;
+    float t = 0.0f;
 
-    waveLayer->beginFrame();
-    {
-        auto* c = waveLayer->canvas();
-        // For CPU surface, clear to transparent
-        if (!hasGPU) {
-            auto* pm = waveLayer->peekPixels();
-            if (pm) pm->clear({0, 0, 0, 0});
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) running = false;
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) running = false;
         }
 
-        const int N = W;
-        std::vector<ink::Point> wave(N);
-        for (int i = 0; i < N; ++i) {
-            float t = f32(i) / f32(W) * 4.0f * 3.14159f;
-            wave[i] = {f32(i), f32(H/2) + std::sin(t) * f32(H) * 0.3f};
-        }
-        c->drawPolyline(wave.data(), N, {0, 200, 255, 220}, 2.0f);
+        t += 0.02f;
 
-        for (int i = 0; i < N; ++i) {
-            float t = f32(i) / f32(W) * 8.0f * 3.14159f;
-            wave[i] = {f32(i), f32(H/2) + std::sin(t) * f32(H) * 0.1f};
-        }
-        c->drawPolyline(wave.data(), N, {255, 100, 50, 150}, 2.0f);
-    }
-    waveLayer->endFrame();
-    waveLayer->flush();
-    std::printf("Layer 2 (waveform):   %s rendered\n", hasGPU ? "GPU" : "CPU");
+        auto* pm = waveLayer->peekPixels();
+        if (pm) pm->clear({0, 0, 0, 0});
+        waveLayer->beginFrame();
+        drawWaveform(waveLayer->canvas(), W, H, t);
+        waveLayer->endFrame();
+        waveLayer->flush();
 
-    // ---------------------------------------------------------------
-    // Layer 3: UI overlay (GPU if available, else CPU)
-    // ---------------------------------------------------------------
-    std::unique_ptr<ink::Surface> uiLayer;
+        pm = uiLayer->peekPixels();
+        if (pm) pm->clear({0, 0, 0, 0});
+        uiLayer->beginFrame();
+        drawUI(uiLayer->canvas(), W, H, t);
+        uiLayer->endFrame();
+        uiLayer->flush();
 
-    if (hasGPU) {
-#if INK_HAS_GL
-        auto ub = ink::GLBackend::Make(gpuContext, W, H);
-        uiLayer = ink::Surface::MakeGpu(std::move(ub), W, H);
-#endif
-    } else {
-        uiLayer = ink::Surface::MakeRaster(W, H);
-    }
+        auto bgSnap = bgLayer->makeSnapshot();
+        auto waveSnap = waveLayer->makeSnapshot();
+        auto uiSnap = uiLayer->makeSnapshot();
 
-    uiLayer->beginFrame();
-    {
-        auto* c = uiLayer->canvas();
-        if (!hasGPU) {
-            auto* pm = uiLayer->peekPixels();
-            if (pm) pm->clear({0, 0, 0, 0});
-        }
-
-        c->fillRect({10, 10, 180, 60}, {0, 0, 0, 160});
-        c->strokeRect({10, 10, 180, 60}, {100, 100, 120, 200});
-
-        f32 cx = f32(W/2), cy = f32(H/2);
-        c->drawLine({cx - 15, cy}, {cx + 15, cy}, {255, 255, 0, 200}, 2.0f);
-        c->drawLine({cx, cy - 15}, {cx, cy + 15}, {255, 255, 0, 200}, 2.0f);
-
-        c->fillRect({0, 0, 8, 8}, {255, 0, 0, 255});
-        c->fillRect({f32(W-8), 0, 8, 8}, {0, 255, 0, 255});
-        c->fillRect({0, f32(H-8), 8, 8}, {0, 0, 255, 255});
-        c->fillRect({f32(W-8), f32(H-8), 8, 8}, {255, 255, 0, 255});
-
-        for (int x = 0; x < W; x += 100)
-            c->fillRect({f32(x), f32(H-4), 2, 4}, {200, 200, 200, 180});
-    }
-    uiLayer->endFrame();
-    uiLayer->flush();
-    std::printf("Layer 3 (UI overlay): %s rendered\n", hasGPU ? "GPU" : "CPU");
-
-    // ---------------------------------------------------------------
-    // Create snapshots for compositing.
-    // CPU layers produce CPU-backed images; GPU layers produce GPU-backed images.
-    // ---------------------------------------------------------------
-    auto bgSnap = bgLayer->makeSnapshot();
-    auto waveSnap = waveLayer->makeSnapshot();
-    auto uiSnap = uiLayer->makeSnapshot();
-
-    // ---------------------------------------------------------------
-    // Composite all layers onto final surface.
-    // In GPU mode this stays fully on-GPU (no per-layer readback).
-    // ---------------------------------------------------------------
-    std::unique_ptr<ink::Surface> finalSurface;
-#if INK_HAS_GL
-    ink::GLBackend* finalBackendPtr = nullptr;
-#endif
-
-    if (hasGPU) {
-#if INK_HAS_GL
-        auto fb = ink::GLBackend::Make(gpuContext, W, H);
-        finalBackendPtr = static_cast<ink::GLBackend*>(fb.get());
-        finalSurface = ink::Surface::MakeGpu(std::move(fb), W, H);
-#endif
-    } else {
-        finalSurface = ink::Surface::MakeRaster(W, H);
-    }
-
-    finalSurface->beginFrame();
-    {
+        finalSurface->beginFrame();
         auto* c = finalSurface->canvas();
         c->drawImage(bgSnap, 0, 0);
         c->drawImage(waveSnap, 0, 0);
         c->drawImage(uiSnap, 0, 0);
-    }
-    finalSurface->endFrame();
-    finalSurface->flush();
+        finalSurface->endFrame();
+        finalSurface->flush();
 
-    if (hasGPU) {
-#if INK_HAS_GL
-        std::vector<ink::u8> buf(W * H * 4);
-        auto tmpPm = ink::Pixmap::Alloc(ink::PixmapInfo::Make(W, H, ink::PixelFormat::BGRA8888));
-        finalBackendPtr->readPixels(buf.data(), 0, 0, W, H);
-        gpuReadbackToPixmap(tmpPm, buf.data(), W, H);
-        writePPM("composite_output.ppm", tmpPm);
-#endif
-    } else {
-        auto* pm = finalSurface->peekPixels();
-        if (pm) writePPM("composite_output.ppm", *pm);
+        pm = finalSurface->peekPixels();
+        if (pm) {
+            SDL_UpdateTexture(texture, nullptr, pm->addr(), pm->info().stride);
+            SDL_RenderClear(renderer);
+            SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+            SDL_RenderPresent(renderer);
+        }
+
+        SDL_Delay(16);
     }
 
-    std::printf("\nCompositing: 3 layers -> drawImage -> final surface\n");
-
-#if INK_HAS_GL
-    if (hasGPU) {
-        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        eglDestroyContext(display, eglCtx);
-        eglDestroySurface(display, eglSurf);
-        eglTerminate(display);
-    }
-#endif
+    SDL_DestroyTexture(texture);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 
     return 0;
 }

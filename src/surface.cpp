@@ -1,13 +1,14 @@
 #include "ink/surface.hpp"
 #include "ink/canvas.hpp"
 #include "ink/device.hpp"
-#include "ink/cpu_backend.hpp"
 #include "ink/draw_pass.hpp"
 #include "ink/image.hpp"
 #include "ink/gpu/gpu_context.hpp"
+#include "backend.hpp"
+#include "cpu_backend.hpp"
 
 #if INK_HAS_GL
-#include "ink/gpu/gl/gl_backend.hpp"
+#include "gpu/gl/gl_backend.hpp"
 #endif
 
 namespace ink {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ink/backend.hpp"
+#include "backend.hpp"
 #include "ink/pixmap.hpp"
 
 namespace ink {

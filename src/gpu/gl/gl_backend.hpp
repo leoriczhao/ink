@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ink/backend.hpp"
+#include "../../backend.hpp"
 
 #if INK_HAS_GL
 

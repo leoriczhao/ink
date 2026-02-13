@@ -26,15 +26,12 @@
 // Canvas (user-facing drawing API)
 #include "ink/canvas.hpp"
 
-// Backend (rendering execution)
-#include "ink/backend.hpp"
-#include "ink/cpu_backend.hpp"
+// GPU context (abstract)
 #include "ink/gpu/gpu_context.hpp"
 
-// GL backend (conditional)
+// GL context factory (conditional)
 #if INK_HAS_GL
 #include "ink/gpu/gl/gl_context.hpp"
-#include "ink/gpu/gl/gl_backend.hpp"
 #endif
 
 // Pipeline (GPU pipeline stages)
