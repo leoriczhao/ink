@@ -108,18 +108,26 @@ install(EXPORT inkTargets
 
 # --- Examples ---
 if(INK_BUILD_EXAMPLES)
+    find_package(SDL2 REQUIRED)
+
     add_executable(example_basic examples/example_basic.cpp)
-    target_link_libraries(example_basic PRIVATE ink)
+    target_link_libraries(example_basic PRIVATE ink SDL2::SDL2)
 
     add_executable(example_composite examples/example_composite.cpp)
-    target_link_libraries(example_composite PRIVATE ink)
+    target_link_libraries(example_composite PRIVATE ink SDL2::SDL2)
 
-    # Link EGL for headless GPU context in examples
     if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
         find_library(EGL_LIBRARY EGL)
         if(EGL_LIBRARY)
             target_link_libraries(example_basic PRIVATE ${EGL_LIBRARY})
             target_link_libraries(example_composite PRIVATE ${EGL_LIBRARY})
+        endif()
+
+        # GPU example - requires GL
+        add_executable(example_gpu examples/example_gpu.cpp)
+        target_link_libraries(example_gpu PRIVATE ink SDL2::SDL2 OpenGL::GL GLEW::GLEW)
+        if(EGL_LIBRARY)
+            target_link_libraries(example_gpu PRIVATE ${EGL_LIBRARY})
         endif()
     endif()
 endif()
