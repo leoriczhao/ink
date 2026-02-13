@@ -26,7 +26,7 @@ public:
     // GPU surface - creates internal Backend from GpuContext
     // Falls back to CPU if context is nullptr
     // Requires: #include <ink/gpu/gl/gl_context.hpp> to create GpuContext
-    static std::unique_ptr<Surface> MakeGpu(std::shared_ptr<GpuContext> context,
+    static std::unique_ptr<Surface> MakeGpu(const std::shared_ptr<GpuContext>& context,
                                             i32 w, i32 h,
                                             PixelFormat fmt = PixelFormat::BGRA8888);
 

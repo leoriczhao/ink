@@ -42,7 +42,7 @@ std::unique_ptr<Surface> Surface::MakeRecording(i32, i32) {
     return std::unique_ptr<Surface>(new Surface(nullptr, nullptr));
 }
 
-std::unique_ptr<Surface> Surface::MakeGpu(std::shared_ptr<GpuContext> context,
+std::unique_ptr<Surface> Surface::MakeGpu(const std::shared_ptr<GpuContext>& context,
                                           i32 w, i32 h, PixelFormat fmt) {
     if (!context || !context->valid()) {
         return MakeRaster(w, h, fmt);
