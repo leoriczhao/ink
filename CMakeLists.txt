@@ -65,7 +65,7 @@ if(INK_ENABLE_VULKAN)
     find_package(Vulkan QUIET)
     if(Vulkan_FOUND)
         target_sources(ink PRIVATE
-            src/gpu/vk/vk_backend.cpp
+            src/gpu/vk/vk_context.cpp
         )
         target_link_libraries(ink PRIVATE Vulkan::Vulkan)
         target_compile_definitions(ink PUBLIC INK_HAS_VULKAN=1)
