@@ -3,6 +3,7 @@
 // Only compiled when INK_HAS_GL is defined (via CMake).
 
 #include "ink/gpu/gl/gl_context.hpp"
+#include "ink/gpu/gpu_context.hpp"
 #include "gpu/gpu_impl.hpp"
 
 namespace ink {
@@ -14,7 +15,7 @@ namespace GpuContexts {
 
 std::shared_ptr<GpuContext> MakeGL() {
     auto impl = makeGLGpuImpl();
-    return GpuContext::MakeFromImpl(std::move(impl));
+    return GpuImpl::createContext(std::move(impl));
 }
 
 } // namespace GpuContexts

@@ -1,10 +1,12 @@
 #pragma once
 
 #include "ink/types.hpp"
+#include <memory>
 
 namespace ink {
 
 class Image;
+class GpuContext;
 
 /**
  * GpuImpl - Internal abstract base for backend-specific GPU implementations.
@@ -27,6 +29,12 @@ public:
      * Returns 0 on failure.
      */
     virtual u64 resolveImageTexture(const Image* image) = 0;
+
+    /**
+     * Internal helper to create a GpuContext from an impl.
+     * Used by backend-specific factories (e.g. GpuContexts::MakeGL).
+     */
+    static std::shared_ptr<GpuContext> createContext(std::unique_ptr<GpuImpl> impl);
 };
 
 } // namespace ink

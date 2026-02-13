@@ -29,4 +29,9 @@ u64 GpuContext::resolveImageTexture(const Image* image) {
     return impl_->resolveImageTexture(image);
 }
 
+// GpuImpl helper - allows backend factories to create GpuContext
+std::shared_ptr<GpuContext> GpuImpl::createContext(std::unique_ptr<GpuImpl> impl) {
+    return GpuContext::MakeFromImpl(std::move(impl));
+}
+
 } // namespace ink
