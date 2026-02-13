@@ -12,13 +12,10 @@
 namespace ink {
 
 class GlyphCache;
+class GpuContext;
 
 class Surface {
 public:
-    // Auto surface - tries GPU first, falls back to CPU
-    static std::unique_ptr<Surface> MakeAuto(i32 w, i32 h,
-                                              PixelFormat fmt = PixelFormat::BGRA8888);
-
     // CPU raster surface - allocates internal pixel buffer
     static std::unique_ptr<Surface> MakeRaster(i32 w, i32 h,
                                                 PixelFormat fmt = PixelFormat::BGRA8888);
@@ -26,8 +23,12 @@ public:
     // CPU raster surface - wraps host-provided pixel buffer (zero-copy)
     static std::unique_ptr<Surface> MakeRasterDirect(const PixmapInfo& info, void* pixels);
 
-    // GPU surface - host must have GL context current (future)
-    static std::unique_ptr<Surface> MakeGpu(std::unique_ptr<Backend> backend, i32 w, i32 h);
+    // GPU surface - creates internal Backend from GpuContext
+    // Falls back to CPU if context is nullptr
+    // Requires: #include <ink/gpu/gl/gl_context.hpp> to create GpuContext
+    static std::unique_ptr<Surface> MakeGpu(std::shared_ptr<GpuContext> context,
+                                            i32 w, i32 h,
+                                            PixelFormat fmt = PixelFormat::BGRA8888);
 
     // Recording-only surface - no backend, just captures commands
     static std::unique_ptr<Surface> MakeRecording(i32 w, i32 h);

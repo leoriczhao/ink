@@ -4,24 +4,13 @@
 #include "ink/cpu_backend.hpp"
 #include "ink/draw_pass.hpp"
 #include "ink/image.hpp"
+#include "ink/gpu/gpu_context.hpp"
 
 #if INK_HAS_GL
 #include "ink/gpu/gl/gl_backend.hpp"
 #endif
 
 namespace ink {
-
-std::unique_ptr<Surface> Surface::MakeAuto(i32 w, i32 h, PixelFormat fmt) {
-#if INK_HAS_GL
-    try {
-        auto backend = GLBackend::Make(w, h);
-        if (backend) return MakeGpu(std::move(backend), w, h);
-    } catch (...) {
-        // Fall through to CPU
-    }
-#endif
-    return MakeRaster(w, h, fmt);
-}
 
 Surface::Surface(std::unique_ptr<Backend> backend,
                  std::unique_ptr<Pixmap> pixmap)
@@ -52,8 +41,20 @@ std::unique_ptr<Surface> Surface::MakeRecording(i32, i32) {
     return std::unique_ptr<Surface>(new Surface(nullptr, nullptr));
 }
 
-std::unique_ptr<Surface> Surface::MakeGpu(std::unique_ptr<Backend> backend, i32, i32) {
-    return std::unique_ptr<Surface>(new Surface(std::move(backend), nullptr));
+std::unique_ptr<Surface> Surface::MakeGpu(std::shared_ptr<GpuContext> context,
+                                          i32 w, i32 h, PixelFormat fmt) {
+    if (!context || !context->valid()) {
+        return MakeRaster(w, h, fmt);
+    }
+
+#if INK_HAS_GL
+    auto backend = GLBackend::Make(context, w, h);
+    if (backend) {
+        return std::unique_ptr<Surface>(new Surface(std::move(backend), nullptr));
+    }
+#endif
+
+    return MakeRaster(w, h, fmt);
 }
 
 void Surface::resize(i32 w, i32 h) {
@@ -98,7 +99,6 @@ std::shared_ptr<Image> Surface::makeSnapshot() const {
 }
 
 bool Surface::isGPU() const {
-    // GPU if we have a backend but no pixmap
     return backend_ != nullptr && pixmap_ == nullptr;
 }
 
