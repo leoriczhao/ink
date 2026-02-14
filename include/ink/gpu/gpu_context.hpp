@@ -6,35 +6,47 @@
 namespace ink {
 
 class Image;
-class GLBackend;
+class Recording;
+class DrawPass;
 
 /**
- * GpuContext - Lightweight shared GPU resource context.
+ * GpuContext - GPU rendering context.
  *
- * Host owns platform GL context creation/switching (EGL/GLFW/etc).
- * Ink binds to the currently active GL context via MakeGLFromCurrent().
- *
- * This object owns cross-surface shared GPU resources like CPU-image texture
- * cache. Individual GL backends still own per-surface render targets (FBOs).
+ * Manages all GPU resources and executes rendering commands.
+ * Create via backend-specific factory functions:
+ *   - GpuContexts::MakeGL() (include ink/gpu/gl/gl_context.hpp)
  */
 class GpuContext {
 public:
-    static std::shared_ptr<GpuContext> MakeGLFromCurrent();
-
     ~GpuContext();
 
-    bool valid() const { return impl_ != nullptr; }
+    bool valid() const;
+
+    void beginFrame();
+    void endFrame();
+    void execute(const Recording& recording, const DrawPass& pass);
+    void resize(i32 w, i32 h);
+
+    std::shared_ptr<Image> makeSnapshot() const;
+    void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const;
+
+    unsigned int textureId() const;
+    unsigned int fboId() const;
 
 private:
-    struct Impl;
-    std::shared_ptr<Impl> impl_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 
-    explicit GpuContext(std::shared_ptr<Impl> impl);
+    explicit GpuContext(std::unique_ptr<Impl> impl);
 
-    // GLBackend internal API
-    u32 resolveImageTexture(const Image* image);
+    u64 resolveImageTexture(const Image* image);
 
-    friend class GLBackend;
+    friend class Surface;
+    friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<class GpuImpl>);
 };
+
+namespace GpuContexts {
+    std::shared_ptr<GpuContext> MakeGL();
+}
 
 } // namespace ink

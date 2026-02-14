@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/canvas.hpp>
+#include <ink/device.hpp>
+#include <ink/image.hpp>
 
 using namespace ink;
 

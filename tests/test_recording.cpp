@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
-#include <ink/ink.hpp>
+#include <ink/recording.hpp>
+#include <ink/draw_op_visitor.hpp>
+#include <ink/image.hpp>
 
 #include <string>
 #include <vector>
