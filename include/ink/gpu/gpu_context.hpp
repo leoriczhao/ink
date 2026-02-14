@@ -6,19 +6,15 @@
 namespace ink {
 
 class Image;
-class GpuImpl;
+class Recording;
+class DrawPass;
 
 /**
- * GpuContext - Backend-agnostic shared GPU resource context.
+ * GpuContext - GPU rendering context.
  *
- * Owns cross-surface shared GPU resources (e.g. CPU-image texture cache).
- * Individual backends still own per-surface render targets.
- *
+ * Manages all GPU resources and executes rendering commands.
  * Create via backend-specific factory functions:
  *   - GpuContexts::MakeGL() (include ink/gpu/gl/gl_context.hpp)
- *
- * This class is intentionally minimal. All GPU-specific logic is
- * hidden behind GpuImpl (internal).
  */
 class GpuContext {
 public:
@@ -26,16 +22,31 @@ public:
 
     bool valid() const;
 
+    void beginFrame();
+    void endFrame();
+    void execute(const Recording& recording, const DrawPass& pass);
+    void resize(i32 w, i32 h);
+
+    std::shared_ptr<Image> makeSnapshot() const;
+    void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const;
+
+    unsigned int textureId() const;
+    unsigned int fboId() const;
+
 private:
-    std::shared_ptr<GpuImpl> impl_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 
-    explicit GpuContext(std::shared_ptr<GpuImpl> impl);
+    explicit GpuContext(std::unique_ptr<Impl> impl);
 
-    static std::shared_ptr<GpuContext> MakeFromImpl(std::unique_ptr<GpuImpl> impl);
     u64 resolveImageTexture(const Image* image);
 
-    friend class GLBackend;
-    friend class GpuImpl;
+    friend class Surface;
+    friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<class GpuImpl>);
 };
+
+namespace GpuContexts {
+    std::shared_ptr<GpuContext> MakeGL();
+}
 
 } // namespace ink

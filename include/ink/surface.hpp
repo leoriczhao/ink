@@ -10,7 +10,6 @@
 
 namespace ink {
 
-class Backend;
 class GlyphCache;
 class GpuContext;
 
@@ -23,14 +22,13 @@ public:
     // CPU raster surface - wraps host-provided pixel buffer (zero-copy)
     static std::unique_ptr<Surface> MakeRasterDirect(const PixmapInfo& info, void* pixels);
 
-    // GPU surface - creates internal Backend from GpuContext
-    // Falls back to CPU if context is nullptr
-    // Requires: #include <ink/gpu/gl/gl_context.hpp> to create GpuContext
+    // GPU surface - uses GpuContext for rendering
+    // Falls back to CPU if context is nullptr or invalid
     static std::unique_ptr<Surface> MakeGpu(const std::shared_ptr<GpuContext>& context,
                                             i32 w, i32 h,
                                             PixelFormat fmt = PixelFormat::BGRA8888);
 
-    // Recording-only surface - no backend, just captures commands
+    // Recording-only surface - no rendering, just captures commands
     static std::unique_ptr<Surface> MakeRecording(i32 w, i32 h);
 
     ~Surface();
@@ -61,13 +59,13 @@ public:
     void setGlyphCache(GlyphCache* cache);
 
 private:
-    Surface(std::unique_ptr<Backend> backend,
-            std::unique_ptr<Pixmap> pixmap);
+    Surface(std::shared_ptr<GpuContext> gpuContext, std::unique_ptr<Pixmap> pixmap);
 
     Device device_;
     std::unique_ptr<Canvas> canvas_;
-    std::unique_ptr<Backend> backend_;
+    std::shared_ptr<GpuContext> gpuContext_;
     std::unique_ptr<Pixmap> pixmap_;
+    GlyphCache* glyphCache_ = nullptr;
 };
 
-}
+} // namespace ink
