@@ -90,7 +90,7 @@ GLuint GLTextureCache::resolve(const Image* image) {
 }
 
 // GLImpl - composes resource components
-class GLImpl : public GpuImpl {
+class GLImpl : public GpuImpl, public GLInterop {
 public:
     GLFramebuffer framebuffer_;
     GLShaderProgram colorProgram_;
@@ -304,8 +304,10 @@ public:
         glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, dst);
     }
 
-    unsigned int textureId() const override { return framebuffer_.texture; }
-    unsigned int fboId() const override { return framebuffer_.fbo; }
+    unsigned int glTextureId() const override { return framebuffer_.texture; }
+    unsigned int glFboId() const override { return framebuffer_.fbo; }
+    
+    GLInterop* glInterop() override { return this; }
 
     u64 resolveImageTexture(const Image* image) override {
         return textureCache_.resolve(image);

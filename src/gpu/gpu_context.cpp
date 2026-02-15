@@ -35,11 +35,15 @@ void GpuContext::readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const {
 }
 
 unsigned int GpuContext::textureId() const {
-    return impl_ && impl_->gpu ? impl_->gpu->textureId() : 0;
+    if (!impl_ || !impl_->gpu) return 0;
+    auto* interop = impl_->gpu->glInterop();
+    return interop ? interop->glTextureId() : 0;
 }
 
 unsigned int GpuContext::fboId() const {
-    return impl_ && impl_->gpu ? impl_->gpu->fboId() : 0;
+    if (!impl_ || !impl_->gpu) return 0;
+    auto* interop = impl_->gpu->glInterop();
+    return interop ? interop->glFboId() : 0;
 }
 
 u64 GpuContext::resolveImageTexture(const Image* image) {
