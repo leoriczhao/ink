@@ -1,5 +1,6 @@
 #include "ink/recording.hpp"
 #include "ink/draw_op_visitor.hpp"
+#include "ink/draw_pass.hpp"
 #include "ink/image.hpp"
 
 namespace ink {
@@ -58,6 +59,46 @@ const Image* Recording::getImage(u32 index) const {
 
 void Recording::accept(DrawOpVisitor& visitor) const {
     for (const auto& op : ops_) {
+        switch (op.type) {
+            case DrawOp::Type::FillRect:
+                visitor.visitFillRect(op.data.fill.rect, op.color);
+                break;
+            case DrawOp::Type::StrokeRect:
+                visitor.visitStrokeRect(op.data.stroke.rect, op.color, op.width);
+                break;
+            case DrawOp::Type::Line:
+                visitor.visitLine(op.data.line.p1, op.data.line.p2, op.color, op.width);
+                break;
+            case DrawOp::Type::Polyline:
+                visitor.visitPolyline(
+                    arena_.getPoints(op.data.polyline.offset),
+                    static_cast<i32>(op.data.polyline.count),
+                    op.color, op.width);
+                break;
+            case DrawOp::Type::Text:
+                visitor.visitText(
+                    op.data.text.pos,
+                    arena_.getString(op.data.text.offset),
+                    op.data.text.len, op.color);
+                break;
+            case DrawOp::Type::DrawImage:
+                visitor.visitDrawImage(
+                    getImage(op.data.image.imageIndex),
+                    op.data.image.x, op.data.image.y);
+                break;
+            case DrawOp::Type::SetClip:
+                visitor.visitSetClip(op.data.clip.rect);
+                break;
+            case DrawOp::Type::ClearClip:
+                visitor.visitClearClip();
+                break;
+        }
+    }
+}
+
+void Recording::dispatch(DrawOpVisitor& visitor, const DrawPass& pass) const {
+    for (u32 idx : pass.sortedIndices()) {
+        const auto& op = ops_[idx];
         switch (op.type) {
             case DrawOp::Type::FillRect:
                 visitor.visitFillRect(op.data.fill.rect, op.color);

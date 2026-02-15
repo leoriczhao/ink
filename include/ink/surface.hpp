@@ -6,6 +6,7 @@
 #include "ink/device.hpp"
 #include "ink/pixel_data.hpp"
 #include "ink/image.hpp"
+#include "ink/renderer.hpp"
 #include <memory>
 
 namespace ink {
@@ -59,11 +60,11 @@ public:
     void setGlyphCache(GlyphCache* cache);
 
 private:
-    Surface(std::shared_ptr<GpuContext> gpuContext, std::unique_ptr<Pixmap> pixmap);
+    Surface(std::unique_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap);
 
     Device device_;
     std::unique_ptr<Canvas> canvas_;
-    std::shared_ptr<GpuContext> gpuContext_;
+    std::unique_ptr<Renderer> renderer_;
     std::unique_ptr<Pixmap> pixmap_;
     GlyphCache* glyphCache_ = nullptr;
 };

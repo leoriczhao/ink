@@ -7,18 +7,17 @@
 #include "ink/gpu/gpu_context.hpp"
 #include "ink/recording.hpp"
 #include "ink/draw_pass.hpp"
+#include "ink/draw_op_visitor.hpp"
 #include "ink/image.hpp"
 #include "ink/glyph_cache.hpp"
 #include "gpu_impl.hpp"
+#include "gl_resources.hpp"
 
 #if INK_HAS_GL
 
-#include <GL/glew.h>
 #include <vector>
 #include <cstdio>
-#include <cstring>
 #include <cmath>
-#include <unordered_map>
 
 namespace ink {
 
@@ -66,81 +65,47 @@ void main() {
 }
 )";
 
-// GL utilities
-static GLuint compileShader(GLenum type, const char* src) {
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &src, nullptr);
-    glCompileShader(shader);
-    GLint ok = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[512];
-        glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
-        std::fprintf(stderr, "ink GL: shader error: %s\n", log);
-        glDeleteShader(shader);
-        return 0;
-    }
-    return shader;
+// GLTextureCache::resolve implementation
+GLuint GLTextureCache::resolve(const Image* image) {
+    if (!image || !image->valid()) return 0;
+    if (image->isGpuBacked()) return static_cast<GLuint>(image->backendTextureHandle());
+
+    u64 id = image->uniqueId();
+    auto it = cache_.find(id);
+    if (it != cache_.end()) return it->second;
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    if (!tex) return 0;
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image->width(), image->height(), 0,
+                 image->format() == PixelFormat::BGRA8888 ? GL_BGRA : GL_RGBA,
+                 GL_UNSIGNED_BYTE, image->pixels());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    cache_[id] = tex;
+    return tex;
 }
 
-static GLuint linkProgram(GLuint vert, GLuint frag) {
-    GLuint prog = glCreateProgram();
-    glAttachShader(prog, vert);
-    glAttachShader(prog, frag);
-    glLinkProgram(prog);
-    GLint ok = 0;
-    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[512];
-        glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
-        std::fprintf(stderr, "ink GL: link error: %s\n", log);
-        glDeleteProgram(prog);
-        return 0;
-    }
-    return prog;
-}
-
-static GLuint createProgram(const char* vertSrc, const char* fragSrc) {
-    GLuint vert = compileShader(GL_VERTEX_SHADER, vertSrc);
-    GLuint frag = compileShader(GL_FRAGMENT_SHADER, fragSrc);
-    if (!vert || !frag) {
-        if (vert) glDeleteShader(vert);
-        if (frag) glDeleteShader(frag);
-        return 0;
-    }
-    GLuint prog = linkProgram(vert, frag);
-    glDeleteShader(vert);
-    glDeleteShader(frag);
-    return prog;
-}
-
-static void makeOrthoMatrix(float* m, float w, float h) {
-    std::memset(m, 0, 16 * sizeof(float));
-    m[0] = 2.0f / w; m[5] = -2.0f / h; m[10] = -1.0f;
-    m[12] = -1.0f; m[13] = 1.0f; m[15] = 1.0f;
-}
-
-struct ColorVertex { float x, y, r, g, b, a; };
-struct TexVertex { float x, y, u, v; };
-
-// GL implementation of GpuImpl
+// GLImpl - composes resource components
 class GLImpl : public GpuImpl {
 public:
-    i32 width_ = 0, height_ = 0;
-    GlyphCache* glyphCache_ = nullptr;
-    GLuint fbo_ = 0, colorTexture_ = 0;
-    GLuint colorProgram_ = 0, texProgram_ = 0;
-    GLint colorProjLoc_ = -1, texProjLoc_ = -1, texSamplerLoc_ = -1;
-    GLuint colorVAO_ = 0, colorVBO_ = 0, texVAO_ = 0, texVBO_ = 0;
+    GLFramebuffer framebuffer_;
+    GLShaderProgram colorProgram_;
+    GLShaderProgram texProgram_;
+    GLVertexBuffer<GLColorVertex> colorBuffer_;
+    GLVertexBuffer<GLTexVertex> texBuffer_;
+    GLTextureCache textureCache_;
     GLuint tempTexture_ = 0;
-    std::vector<ColorVertex> colorVerts_;
-    std::vector<TexVertex> texVerts_;
-    std::unordered_map<u64, GLuint> cpuImageCache_;
+    GlyphCache* glyphCache_ = nullptr;
+    std::vector<GLColorVertex> colorVerts_;
+    std::vector<GLTexVertex> texVerts_;
 
     ~GLImpl() override { destroy(); }
 
     bool init(i32 w, i32 h) {
-        width_ = w; height_ = h;
         glewExperimental = GL_TRUE;
         GLenum err = glewInit();
         while (glGetError() != GL_NO_ERROR) {}
@@ -153,74 +118,53 @@ public:
             return false;
         }
 
-        colorProgram_ = createProgram(kColorVertSrc, kColorFragSrc);
-        if (!colorProgram_) return false;
-        colorProjLoc_ = glGetUniformLocation(colorProgram_, "uProjection");
+        if (!colorProgram_.init(kColorVertSrc, kColorFragSrc)) return false;
+        colorProgram_.projLoc = glGetUniformLocation(colorProgram_.program, "uProjection");
 
-        texProgram_ = createProgram(kTextureVertSrc, kTextureFragSrc);
-        if (!texProgram_) return false;
-        texProjLoc_ = glGetUniformLocation(texProgram_, "uProjection");
-        texSamplerLoc_ = glGetUniformLocation(texProgram_, "uTexture");
+        if (!texProgram_.init(kTextureVertSrc, kTextureFragSrc)) return false;
+        texProgram_.projLoc = glGetUniformLocation(texProgram_.program, "uProjection");
+        texProgram_.samplerLoc = glGetUniformLocation(texProgram_.program, "uTexture");
 
-        glGenVertexArrays(1, &colorVAO_);
-        glGenBuffers(1, &colorVBO_);
-        glBindVertexArray(colorVAO_);
-        glBindBuffer(GL_ARRAY_BUFFER, colorVBO_);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*)0);
+        // Color VAO with position (2 float) + color (4 float)
+        colorBuffer_.init();
+        glBindVertexArray(colorBuffer_.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, colorBuffer_.vbo);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLColorVertex), (void*)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(ColorVertex), (void*)8);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(GLColorVertex), (void*)8);
         glEnableVertexAttribArray(1);
         glBindVertexArray(0);
 
-        glGenVertexArrays(1, &texVAO_);
-        glGenBuffers(1, &texVBO_);
-        glBindVertexArray(texVAO_);
-        glBindBuffer(GL_ARRAY_BUFFER, texVBO_);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(TexVertex), (void*)0);
+        // Texture VAO with position (2 float) + uv (2 float)
+        texBuffer_.init();
+        glBindVertexArray(texBuffer_.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, texBuffer_.vbo);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLTexVertex), (void*)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(TexVertex), (void*)8);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLTexVertex), (void*)8);
         glEnableVertexAttribArray(1);
         glBindVertexArray(0);
 
         glGenTextures(1, &tempTexture_);
-        createFBO(w, h);
-        return true;
-    }
 
-    void createFBO(i32 w, i32 h) {
-        if (colorTexture_) glDeleteTextures(1, &colorTexture_);
-        if (fbo_) glDeleteFramebuffers(1, &fbo_);
-        glGenTextures(1, &colorTexture_);
-        glBindTexture(GL_TEXTURE_2D, colorTexture_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glGenFramebuffers(1, &fbo_);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture_, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return framebuffer_.init(w, h);
     }
 
     void destroy() {
-        for (auto& e : cpuImageCache_) if (e.second) glDeleteTextures(1, &e.second);
-        cpuImageCache_.clear();
-        if (colorTexture_) glDeleteTextures(1, &colorTexture_);
-        if (fbo_) glDeleteFramebuffers(1, &fbo_);
-        if (colorProgram_) glDeleteProgram(colorProgram_);
-        if (texProgram_) glDeleteProgram(texProgram_);
-        if (colorVAO_) glDeleteVertexArrays(1, &colorVAO_);
-        if (colorVBO_) glDeleteBuffers(1, &colorVBO_);
-        if (texVAO_) glDeleteVertexArrays(1, &texVAO_);
-        if (texVBO_) glDeleteBuffers(1, &texVBO_);
-        if (tempTexture_) glDeleteTextures(1, &tempTexture_);
+        textureCache_.clear();
+        framebuffer_.destroy();
+        colorProgram_.destroy();
+        texProgram_.destroy();
+        colorBuffer_.destroy();
+        texBuffer_.destroy();
+        if (tempTexture_) { glDeleteTextures(1, &tempTexture_); tempTexture_ = 0; }
     }
 
     // GpuImpl interface
-    bool valid() const override { return fbo_ != 0; }
+    bool valid() const override { return framebuffer_.fbo != 0; }
 
     void beginFrame() override {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        glViewport(0, 0, width_, height_);
+        framebuffer_.bind();
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_BLEND);
@@ -229,9 +173,14 @@ public:
         glDisable(GL_SCISSOR_TEST);
     }
 
-    void endFrame() override { flushColorBatch(); glFlush(); }
+    void endFrame() override {
+        flushColorBatch();
+        glFlush();
+    }
 
-    void resize(i32 w, i32 h) override { width_ = w; height_ = h; createFBO(w, h); }
+    void resize(i32 w, i32 h) override {
+        framebuffer_.resize(w, h);
+    }
 
     void execute(const Recording& recording, const DrawPass& pass) override {
         const auto& ops = recording.ops();
@@ -259,14 +208,17 @@ public:
                 break;
             }
             case DrawOp::Type::Line: {
-                pushLine(op.data.line.p1.x, op.data.line.p1.y, op.data.line.p2.x, op.data.line.p2.y, op.color, op.width > 0 ? op.width : 1.0f);
+                pushLine(op.data.line.p1.x, op.data.line.p1.y,
+                         op.data.line.p2.x, op.data.line.p2.y,
+                         op.color, op.width > 0 ? op.width : 1.0f);
                 break;
             }
             case DrawOp::Type::Polyline: {
                 const Point* pts = arena.getPoints(op.data.polyline.offset);
                 i32 count = i32(op.data.polyline.count);
                 float w = op.width > 0 ? op.width : 1.0f;
-                for (i32 i = 0; i + 1 < count; ++i) pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, op.color, w);
+                for (i32 i = 0; i + 1 < count; ++i)
+                    pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, op.color, w);
                 break;
             }
             case DrawOp::Type::Text: {
@@ -294,7 +246,7 @@ public:
                 flushColorBatch();
                 const Image* image = recording.getImage(op.data.image.imageIndex);
                 if (image && image->valid()) {
-                    GLuint tex = static_cast<GLuint>(resolveImageTexture(image));
+                    GLuint tex = textureCache_.resolve(image);
                     if (tex) {
                         float x = op.data.image.x, y = op.data.image.y;
                         float w = float(image->width()), h = float(image->height());
@@ -308,7 +260,7 @@ public:
                 flushColorBatch();
                 Rect r = op.data.clip.rect;
                 glEnable(GL_SCISSOR_TEST);
-                glScissor(GLint(r.x), height_ - GLint(r.y + r.h), GLsizei(r.w), GLsizei(r.h));
+                glScissor(GLint(r.x), framebuffer_.height - GLint(r.y + r.h), GLsizei(r.w), GLsizei(r.h));
                 break;
             }
             case DrawOp::Type::ClearClip: {
@@ -322,94 +274,93 @@ public:
     }
 
     std::shared_ptr<Image> makeSnapshot() const override {
-        if (width_ <= 0 || height_ <= 0) return nullptr;
+        if (framebuffer_.width <= 0 || framebuffer_.height <= 0) return nullptr;
         GLuint tex = 0;
         glGenTextures(1, &tex);
         if (!tex) return nullptr;
+
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width_, height_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, framebuffer_.width, framebuffer_.height,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
         GLuint dstFbo = 0;
         glGenFramebuffers(1, &dstFbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
         glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
-        glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_.fbo);
+        glBlitFramebuffer(0, 0, framebuffer_.width, framebuffer_.height,
+                          0, 0, framebuffer_.width, framebuffer_.height,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
         glDeleteFramebuffers(1, &dstFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_.fbo);
+
         auto owner = std::shared_ptr<GLuint>(new GLuint(tex), [](GLuint* t) { if (t && *t) glDeleteTextures(1, t); delete t; });
-        return Image::MakeFromBackendTexture(tex, width_, height_, PixelFormat::RGBA8888, owner);
+        return Image::MakeFromBackendTexture(tex, framebuffer_.width, framebuffer_.height, PixelFormat::RGBA8888, owner);
     }
 
     void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const override {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_.fbo);
         glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, dst);
     }
 
-    unsigned int textureId() const override { return colorTexture_; }
-    unsigned int fboId() const override { return fbo_; }
+    unsigned int textureId() const override { return framebuffer_.texture; }
+    unsigned int fboId() const override { return framebuffer_.fbo; }
 
     u64 resolveImageTexture(const Image* image) override {
-        if (!image || !image->valid()) return 0;
-        if (image->isGpuBacked()) return image->backendTextureHandle();
-        u64 id = image->uniqueId();
-        auto it = cpuImageCache_.find(id);
-        if (it != cpuImageCache_.end()) return it->second;
-        GLuint tex = 0;
-        glGenTextures(1, &tex);
-        if (!tex) return 0;
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image->width(), image->height(), 0,
-                     image->format() == PixelFormat::BGRA8888 ? GL_BGRA : GL_RGBA, GL_UNSIGNED_BYTE, image->pixels());
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        cpuImageCache_[id] = tex;
-        return tex;
+        return textureCache_.resolve(image);
     }
 
     // Batching
     void pushQuad(float x0, float y0, float x1, float y1, Color c) {
         float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        colorVerts_.insert(colorVerts_.end(), {{x0,y0,r,g,b,a},{x1,y0,r,g,b,a},{x0,y1,r,g,b,a},{x1,y0,r,g,b,a},{x1,y1,r,g,b,a},{x0,y1,r,g,b,a}});
+        colorVerts_.insert(colorVerts_.end(), {
+            {x0,y0,r,g,b,a}, {x1,y0,r,g,b,a}, {x0,y1,r,g,b,a},
+            {x1,y0,r,g,b,a}, {x1,y1,r,g,b,a}, {x0,y1,r,g,b,a}
+        });
     }
 
     void pushLine(float x0, float y0, float x1, float y1, Color c, float width) {
-        float dx = x1-x0, dy = y1-y0, len = std::sqrt(dx*dx+dy*dy);
+        float dx = x1-x0, dy = y1-y0, len = std::sqrt(dx*dx + dy*dy);
         if (len < 0.0001f) return;
-        float hw = width*0.5f, nx = -dy/len*hw, ny = dx/len*hw;
+        float hw = width * 0.5f, nx = -dy/len*hw, ny = dx/len*hw;
         float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        colorVerts_.insert(colorVerts_.end(), {{x0+nx,y0+ny,r,g,b,a},{x0-nx,y0-ny,r,g,b,a},{x1+nx,y1+ny,r,g,b,a},{x0-nx,y0-ny,r,g,b,a},{x1-nx,y1-ny,r,g,b,a},{x1+nx,y1+ny,r,g,b,a}});
+        colorVerts_.insert(colorVerts_.end(), {
+            {x0+nx,y0+ny,r,g,b,a}, {x0-nx,y0-ny,r,g,b,a}, {x1+nx,y1+ny,r,g,b,a},
+            {x0-nx,y0-ny,r,g,b,a}, {x1-nx,y1-ny,r,g,b,a}, {x1+nx,y1+ny,r,g,b,a}
+        });
     }
 
     void pushTexQuad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1) {
-        texVerts_.insert(texVerts_.end(), {{x0,y0,u0,v0},{x1,y0,u1,v0},{x0,y1,u0,v1},{x1,y0,u1,v0},{x1,y1,u1,v1},{x0,y1,u0,v1}});
+        texVerts_.insert(texVerts_.end(), {
+            {x0,y0,u0,v0}, {x1,y0,u1,v0}, {x0,y1,u0,v1},
+            {x1,y0,u1,v0}, {x1,y1,u1,v1}, {x0,y1,u0,v1}
+        });
     }
 
     void flushColorBatch() {
         if (colorVerts_.empty()) return;
-        glUseProgram(colorProgram_);
-        float proj[16]; makeOrthoMatrix(proj, float(width_), float(height_));
-        glUniformMatrix4fv(colorProjLoc_, 1, GL_FALSE, proj);
-        glBindVertexArray(colorVAO_);
-        glBindBuffer(GL_ARRAY_BUFFER, colorVBO_);
-        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(colorVerts_.size()*sizeof(ColorVertex)), colorVerts_.data(), GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(colorVerts_.size()));
+        colorProgram_.use();
+        colorProgram_.setProjection(float(framebuffer_.width), float(framebuffer_.height));
+        colorBuffer_.upload(colorVerts_);
+        colorBuffer_.boundCount = GLsizei(colorVerts_.size());
+        colorBuffer_.bind();
+        glDrawArrays(GL_TRIANGLES, 0, colorBuffer_.boundCount);
         glBindVertexArray(0);
         colorVerts_.clear();
     }
 
     void flushTexBatch(GLuint tex) {
         if (texVerts_.empty()) return;
-        glUseProgram(texProgram_);
-        float proj[16]; makeOrthoMatrix(proj, float(width_), float(height_));
-        glUniformMatrix4fv(texProjLoc_, 1, GL_FALSE, proj);
+        texProgram_.use();
+        texProgram_.setProjection(float(framebuffer_.width), float(framebuffer_.height));
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glUniform1i(texSamplerLoc_, 0);
-        glBindVertexArray(texVAO_);
-        glBindBuffer(GL_ARRAY_BUFFER, texVBO_);
-        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(texVerts_.size()*sizeof(TexVertex)), texVerts_.data(), GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(texVerts_.size()));
+        glUniform1i(texProgram_.samplerLoc, 0);
+        texBuffer_.upload(texVerts_);
+        texBuffer_.boundCount = GLsizei(texVerts_.size());
+        texBuffer_.bind();
+        glDrawArrays(GL_TRIANGLES, 0, texBuffer_.boundCount);
         glBindVertexArray(0);
         texVerts_.clear();
     }

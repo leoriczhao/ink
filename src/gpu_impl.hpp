@@ -1,26 +1,24 @@
 #pragma once
 
-#include "ink/types.hpp"
+#include "ink/renderer.hpp"
 #include <memory>
 
 namespace ink {
 
 class Image;
-class Recording;
-class DrawPass;
 class GpuContext;
 
-// Internal base class for GPU implementations.
-class GpuImpl {
+/**
+ * GpuImpl - Internal base class for GPU implementations.
+ *
+ * Extends Renderer with GPU-specific operations.
+ * Implemented by GLImpl, VulkanImpl, etc.
+ */
+class GpuImpl : public Renderer {
 public:
-    virtual ~GpuImpl() = default;
+    ~GpuImpl() override = default;
 
     virtual bool valid() const = 0;
-    virtual void beginFrame() = 0;
-    virtual void endFrame() = 0;
-    virtual void execute(const Recording& recording, const DrawPass& pass) = 0;
-    virtual void resize(i32 w, i32 h) = 0;
-    virtual std::shared_ptr<Image> makeSnapshot() const = 0;
     virtual void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const = 0;
     virtual unsigned int textureId() const = 0;
     virtual unsigned int fboId() const = 0;

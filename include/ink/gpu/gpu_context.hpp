@@ -1,35 +1,34 @@
 #pragma once
 
-#include "ink/types.hpp"
+#include "ink/renderer.hpp"
 #include <memory>
 
 namespace ink {
 
-class Image;
-class Recording;
-class DrawPass;
+class GpuImpl;
 
 /**
  * GpuContext - GPU rendering context.
  *
- * Manages all GPU resources and executes rendering commands.
+ * Implements Renderer interface for GPU rendering.
  * Create via backend-specific factory functions:
  *   - GpuContexts::MakeGL() (include ink/gpu/gl/gl_context.hpp)
  */
-class GpuContext {
+class GpuContext : public Renderer {
 public:
-    ~GpuContext();
+    ~GpuContext() override;
 
     bool valid() const;
 
-    void beginFrame();
-    void endFrame();
-    void execute(const Recording& recording, const DrawPass& pass);
-    void resize(i32 w, i32 h);
+    // Renderer interface
+    void beginFrame() override;
+    void endFrame() override;
+    void execute(const Recording& recording, const DrawPass& pass) override;
+    void resize(i32 w, i32 h) override;
+    std::shared_ptr<Image> makeSnapshot() const override;
 
-    std::shared_ptr<Image> makeSnapshot() const;
+    // GPU-specific operations
     void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const;
-
     unsigned int textureId() const;
     unsigned int fboId() const;
 
@@ -42,7 +41,7 @@ private:
     u64 resolveImageTexture(const Image* image);
 
     friend class Surface;
-    friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<class GpuImpl>);
+    friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<GpuImpl>);
 };
 
 namespace GpuContexts {

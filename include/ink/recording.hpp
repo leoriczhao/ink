@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ink/types.hpp"
-#include <string>
 #include <string_view>
 #include <vector>
 #include <memory>
@@ -82,8 +81,11 @@ public:
     // Get image by index
     const Image* getImage(u32 index) const;
 
-    // Accept visitor for traversing operations
+    // Accept visitor for traversing operations (in original order)
     void accept(DrawOpVisitor& visitor) const;
+
+    // Dispatch operations to visitor in sorted order (via DrawPass)
+    void dispatch(DrawOpVisitor& visitor, const class DrawPass& pass) const;
 
 private:
     std::vector<CompactDrawOp> ops_;
