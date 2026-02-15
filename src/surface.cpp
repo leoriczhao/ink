@@ -8,22 +8,7 @@
 
 namespace ink {
 
-// Adapter to convert shared_ptr<GpuContext> to unique_ptr<Renderer>
-class GpuContextAdapter : public Renderer {
-public:
-    explicit GpuContextAdapter(std::shared_ptr<GpuContext> ctx) : ctx_(std::move(ctx)) {}
-
-    void beginFrame() override { ctx_->beginFrame(); }
-    void endFrame() override { ctx_->endFrame(); }
-    void execute(const Recording& r, const DrawPass& p) override { ctx_->execute(r, p); }
-    void resize(i32 w, i32 h) override { ctx_->resize(w, h); }
-    std::shared_ptr<Image> makeSnapshot() const override { return ctx_->makeSnapshot(); }
-
-private:
-    std::shared_ptr<GpuContext> ctx_;
-};
-
-Surface::Surface(std::unique_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap)
+Surface::Surface(std::shared_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap)
     : device_(),
       renderer_(std::move(renderer)),
       pixmap_(std::move(pixmap)) {
@@ -35,13 +20,13 @@ Surface::~Surface() = default;
 std::unique_ptr<Surface> Surface::MakeRaster(i32 w, i32 h, PixelFormat fmt) {
     PixmapInfo info = PixmapInfo::Make(w, h, fmt);
     auto pixmap = std::make_unique<Pixmap>(Pixmap::Alloc(info));
-    auto renderer = std::make_unique<CpuRenderer>(pixmap.get());
+    auto renderer = std::make_shared<CpuRenderer>(pixmap.get());
     return std::unique_ptr<Surface>(new Surface(std::move(renderer), std::move(pixmap)));
 }
 
 std::unique_ptr<Surface> Surface::MakeRasterDirect(const PixmapInfo& info, void* pixels) {
     auto pixmap = std::make_unique<Pixmap>(Pixmap::Wrap(info, pixels));
-    auto renderer = std::make_unique<CpuRenderer>(pixmap.get());
+    auto renderer = std::make_shared<CpuRenderer>(pixmap.get());
     return std::unique_ptr<Surface>(new Surface(std::move(renderer), std::move(pixmap)));
 }
 
@@ -56,8 +41,7 @@ std::unique_ptr<Surface> Surface::MakeGpu(const std::shared_ptr<GpuContext>& con
     }
 
     context->resize(w, h);
-    return std::unique_ptr<Surface>(new Surface(
-        std::make_unique<GpuContextAdapter>(context), nullptr));
+    return std::unique_ptr<Surface>(new Surface(context, nullptr));
 }
 
 void Surface::resize(i32 w, i32 h) {
@@ -126,8 +110,8 @@ std::unique_ptr<Recording> Surface::takeRecording() {
 
 void Surface::setGlyphCache(GlyphCache* cache) {
     glyphCache_ = cache;
-    if (auto* cpuRenderer = dynamic_cast<CpuRenderer*>(renderer_.get())) {
-        cpuRenderer->setGlyphCache(cache);
+    if (renderer_) {
+        renderer_->setGlyphCache(cache);
     }
 }
 

@@ -155,7 +155,14 @@ public:
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            std::fprintf(stderr, "ink GL: FBO incomplete: 0x%x\n", status);
+            destroy();
+            return false;
+        }
         return true;
     }
 

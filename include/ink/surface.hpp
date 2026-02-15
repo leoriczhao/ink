@@ -60,11 +60,11 @@ public:
     void setGlyphCache(GlyphCache* cache);
 
 private:
-    Surface(std::unique_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap);
+    Surface(std::shared_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap);
 
     Device device_;
     std::unique_ptr<Canvas> canvas_;
-    std::unique_ptr<Renderer> renderer_;
+    std::shared_ptr<Renderer> renderer_;
     std::unique_ptr<Pixmap> pixmap_;
     GlyphCache* glyphCache_ = nullptr;
 };

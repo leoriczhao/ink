@@ -88,6 +88,7 @@ public:
     void dispatch(DrawOpVisitor& visitor, const class DrawPass& pass) const;
 
 private:
+    void dispatchOp(const CompactDrawOp& op, DrawOpVisitor& visitor) const;
     std::vector<CompactDrawOp> ops_;
     DrawOpArena arena_;
     std::vector<std::shared_ptr<Image>> images_;

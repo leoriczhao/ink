@@ -16,6 +16,8 @@ class Image;
  * This abstraction allows Surface to work with any rendering backend
  * through a unified interface.
  */
+class GlyphCache;
+
 class Renderer {
 public:
     virtual ~Renderer() = default;
@@ -25,6 +27,8 @@ public:
     virtual void execute(const Recording& recording, const DrawPass& pass) = 0;
     virtual void resize(i32 w, i32 h) = 0;
     virtual std::shared_ptr<Image> makeSnapshot() const = 0;
+
+    virtual void setGlyphCache(GlyphCache*) {}
 };
 
 } // namespace ink

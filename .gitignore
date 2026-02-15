@@ -9,3 +9,4 @@ out/
 *.dylib
 *.ppm
 compile_commands.json
+.output.txt

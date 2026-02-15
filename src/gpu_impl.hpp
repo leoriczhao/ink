@@ -35,6 +35,9 @@ public:
     virtual void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const = 0;
     virtual u64 resolveImageTexture(const Image* image) = 0;
     virtual GLInterop* glInterop() { return nullptr; }
+
+    // Default no-op; overridden by backends that support text rendering
+    void setGlyphCache(GlyphCache*) override {}
 };
 
 // Internal factory - creates GpuContext from GpuImpl

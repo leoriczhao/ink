@@ -15,7 +15,7 @@ class CpuRenderer : public Renderer, public DrawOpVisitor {
 public:
     explicit CpuRenderer(Pixmap* target) : target_(target) {}
 
-    void setGlyphCache(GlyphCache* cache) { glyphCache_ = cache; }
+    void setGlyphCache(GlyphCache* cache) override { glyphCache_ = cache; }
 
     // Renderer interface
     void beginFrame() override {

@@ -26,6 +26,7 @@ public:
     void execute(const Recording& recording, const DrawPass& pass) override;
     void resize(i32 w, i32 h) override;
     std::shared_ptr<Image> makeSnapshot() const override;
+    void setGlyphCache(GlyphCache* cache) override;
 
     // GPU-specific operations
     void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const;
@@ -33,10 +34,9 @@ public:
     unsigned int fboId() const;
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
+    std::shared_ptr<GpuImpl> impl_;
 
-    explicit GpuContext(std::unique_ptr<Impl> impl);
+    explicit GpuContext(std::shared_ptr<GpuImpl> impl);
 
     u64 resolveImageTexture(const Image* image);
 

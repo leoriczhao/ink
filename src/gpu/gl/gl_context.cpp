@@ -90,7 +90,7 @@ GLuint GLTextureCache::resolve(const Image* image) {
 }
 
 // GLImpl - composes resource components
-class GLImpl : public GpuImpl, public GLInterop {
+class GLImpl : public GpuImpl, public GLInterop, public DrawOpVisitor {
 public:
     GLFramebuffer framebuffer_;
     GLShaderProgram colorProgram_;
@@ -102,6 +102,7 @@ public:
     GlyphCache* glyphCache_ = nullptr;
     std::vector<GLColorVertex> colorVerts_;
     std::vector<GLTexVertex> texVerts_;
+    const Recording* currentRecording_ = nullptr;
 
     ~GLImpl() override { destroy(); }
 
@@ -182,95 +183,78 @@ public:
         framebuffer_.resize(w, h);
     }
 
+    void setGlyphCache(GlyphCache* cache) override { glyphCache_ = cache; }
+
     void execute(const Recording& recording, const DrawPass& pass) override {
-        const auto& ops = recording.ops();
-        const auto& arena = recording.arena();
-        DrawOp::Type lastType = DrawOp::Type(-1);
+        currentRecording_ = &recording;
+        recording.dispatch(*this, pass);
+        flushColorBatch();
+        currentRecording_ = nullptr;
+    }
 
-        for (u32 idx : pass.sortedIndices()) {
-            const auto& op = ops[idx];
-            if (op.type != lastType && lastType != DrawOp::Type(-1)) flushColorBatch();
-            lastType = op.type;
+    // DrawOpVisitor interface
+    void visitFillRect(Rect r, Color c) override {
+        pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, c);
+    }
 
-            switch (op.type) {
-            case DrawOp::Type::FillRect: {
-                Rect r = op.data.fill.rect;
-                pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, op.color);
-                break;
-            }
-            case DrawOp::Type::StrokeRect: {
-                Rect r = op.data.stroke.rect;
-                float w = op.width > 0 ? op.width : 1.0f;
-                pushQuad(r.x, r.y, r.x + r.w, r.y + w, op.color);
-                pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, op.color);
-                pushQuad(r.x, r.y + w, r.x + w, r.y + r.h - w, op.color);
-                pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, op.color);
-                break;
-            }
-            case DrawOp::Type::Line: {
-                pushLine(op.data.line.p1.x, op.data.line.p1.y,
-                         op.data.line.p2.x, op.data.line.p2.y,
-                         op.color, op.width > 0 ? op.width : 1.0f);
-                break;
-            }
-            case DrawOp::Type::Polyline: {
-                const Point* pts = arena.getPoints(op.data.polyline.offset);
-                i32 count = i32(op.data.polyline.count);
-                float w = op.width > 0 ? op.width : 1.0f;
-                for (i32 i = 0; i + 1 < count; ++i)
-                    pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, op.color, w);
-                break;
-            }
-            case DrawOp::Type::Text: {
-                flushColorBatch();
-                if (glyphCache_) {
-                    const char* text = arena.getString(op.data.text.offset);
-                    i32 len = i32(op.data.text.len);
-                    i32 tw = glyphCache_->measureText(std::string_view(text, len));
-                    i32 th = glyphCache_->lineHeight();
-                    if (tw > 0 && th > 0) {
-                        std::vector<u32> buf(tw * th, 0);
-                        glyphCache_->drawText(buf.data(), tw, th, 0, 0, std::string_view(text, len), op.color);
-                        glBindTexture(GL_TEXTURE_2D, tempTexture_);
-                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_BGRA, GL_UNSIGNED_BYTE, buf.data());
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                        float x = op.data.text.pos.x, y = op.data.text.pos.y - th;
-                        pushTexQuad(x, y, x + tw, y + th, 0, 0, 1, 1);
-                        flushTexBatch(tempTexture_);
-                    }
-                }
-                break;
-            }
-            case DrawOp::Type::DrawImage: {
-                flushColorBatch();
-                const Image* image = recording.getImage(op.data.image.imageIndex);
-                if (image && image->valid()) {
-                    GLuint tex = textureCache_.resolve(image);
-                    if (tex) {
-                        float x = op.data.image.x, y = op.data.image.y;
-                        float w = float(image->width()), h = float(image->height());
-                        pushTexQuad(x, y, x + w, y + h, 0, 0, 1, 1);
-                        flushTexBatch(tex);
-                    }
-                }
-                break;
-            }
-            case DrawOp::Type::SetClip: {
-                flushColorBatch();
-                Rect r = op.data.clip.rect;
-                glEnable(GL_SCISSOR_TEST);
-                glScissor(GLint(r.x), framebuffer_.height - GLint(r.y + r.h), GLsizei(r.w), GLsizei(r.h));
-                break;
-            }
-            case DrawOp::Type::ClearClip: {
-                flushColorBatch();
-                glDisable(GL_SCISSOR_TEST);
-                break;
-            }
+    void visitStrokeRect(Rect r, Color c, f32 width) override {
+        float w = width > 0 ? width : 1.0f;
+        pushQuad(r.x, r.y, r.x + r.w, r.y + w, c);
+        pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, c);
+        pushQuad(r.x, r.y + w, r.x + w, r.y + r.h - w, c);
+        pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, c);
+    }
+
+    void visitLine(Point p1, Point p2, Color c, f32 width) override {
+        pushLine(p1.x, p1.y, p2.x, p2.y, c, width > 0 ? width : 1.0f);
+    }
+
+    void visitPolyline(const Point* pts, i32 count, Color c, f32 width) override {
+        float w = width > 0 ? width : 1.0f;
+        for (i32 i = 0; i + 1 < count; ++i)
+            pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, c, w);
+    }
+
+    void visitText(Point p, const char* text, u32 len, Color c) override {
+        flushColorBatch();
+        if (glyphCache_) {
+            i32 tw = glyphCache_->measureText(std::string_view(text, len));
+            i32 th = glyphCache_->lineHeight();
+            if (tw > 0 && th > 0) {
+                std::vector<u32> buf(tw * th, 0);
+                glyphCache_->drawText(buf.data(), tw, th, 0, 0, std::string_view(text, len), c);
+                glBindTexture(GL_TEXTURE_2D, tempTexture_);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_BGRA, GL_UNSIGNED_BYTE, buf.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                float x = p.x, y = p.y - th;
+                pushTexQuad(x, y, x + tw, y + th, 0, 0, 1, 1);
+                flushTexBatch(tempTexture_);
             }
         }
+    }
+
+    void visitDrawImage(const Image* image, f32 x, f32 y) override {
         flushColorBatch();
+        if (image && image->valid()) {
+            GLuint tex = textureCache_.resolve(image);
+            if (tex) {
+                float w = float(image->width()), h = float(image->height());
+                pushTexQuad(x, y, x + w, y + h, 0, 0, 1, 1);
+                flushTexBatch(tex);
+            }
+        }
+    }
+
+    void visitSetClip(Rect r) override {
+        flushColorBatch();
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(GLint(r.x), framebuffer_.height - GLint(r.y + r.h), GLsizei(r.w), GLsizei(r.h));
+    }
+
+    void visitClearClip() override {
+        flushColorBatch();
+        glDisable(GL_SCISSOR_TEST);
     }
 
     std::shared_ptr<Image> makeSnapshot() const override {
