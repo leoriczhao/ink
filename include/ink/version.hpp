@@ -2,14 +2,14 @@
 
 // Version information
 #define INK_VERSION_MAJOR 0
-#define INK_VERSION_MINOR 1
+#define INK_VERSION_MINOR 2
 #define INK_VERSION_PATCH 0
 
 namespace ink {
 
 // Library information
 inline const char* version() {
-    return "0.1.0";
+    return "0.2.0";
 }
 
 inline int versionMajor() { return INK_VERSION_MAJOR; }

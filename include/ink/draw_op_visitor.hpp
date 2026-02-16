@@ -7,7 +7,7 @@
 namespace ink {
 
 struct CompactDrawOp;
-struct DrawOpArena;
+class DrawOpArena;
 class Image;
 
 // Visitor interface for traversing CompactDrawOp operations.

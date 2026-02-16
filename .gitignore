@@ -2,9 +2,11 @@ build/
 out/
 .cache/
 .vscode/
+.idea/
 *.o
 *.a
 *.so
 *.dylib
 *.ppm
 compile_commands.json
+.output.txt

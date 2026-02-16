@@ -4,21 +4,18 @@
 #include "ink/pixmap.hpp"
 #include "ink/canvas.hpp"
 #include "ink/device.hpp"
-#include "ink/backend.hpp"
 #include "ink/pixel_data.hpp"
 #include "ink/image.hpp"
+#include "ink/renderer.hpp"
 #include <memory>
 
 namespace ink {
 
 class GlyphCache;
+class GpuContext;
 
 class Surface {
 public:
-    // Auto surface - tries GPU first, falls back to CPU
-    static std::unique_ptr<Surface> MakeAuto(i32 w, i32 h,
-                                              PixelFormat fmt = PixelFormat::BGRA8888);
-
     // CPU raster surface - allocates internal pixel buffer
     static std::unique_ptr<Surface> MakeRaster(i32 w, i32 h,
                                                 PixelFormat fmt = PixelFormat::BGRA8888);
@@ -26,10 +23,13 @@ public:
     // CPU raster surface - wraps host-provided pixel buffer (zero-copy)
     static std::unique_ptr<Surface> MakeRasterDirect(const PixmapInfo& info, void* pixels);
 
-    // GPU surface - host must have GL context current (future)
-    static std::unique_ptr<Surface> MakeGpu(std::unique_ptr<Backend> backend, i32 w, i32 h);
+    // GPU surface - uses GpuContext for rendering
+    // Falls back to CPU if context is nullptr or invalid
+    static std::unique_ptr<Surface> MakeGpu(const std::shared_ptr<GpuContext>& context,
+                                            i32 w, i32 h,
+                                            PixelFormat fmt = PixelFormat::BGRA8888);
 
-    // Recording-only surface - no backend, just captures commands
+    // Recording-only surface - no rendering, just captures commands
     static std::unique_ptr<Surface> MakeRecording(i32 w, i32 h);
 
     ~Surface();
@@ -60,13 +60,13 @@ public:
     void setGlyphCache(GlyphCache* cache);
 
 private:
-    Surface(std::unique_ptr<Backend> backend,
-            std::unique_ptr<Pixmap> pixmap);
+    Surface(std::shared_ptr<Renderer> renderer, std::unique_ptr<Pixmap> pixmap);
 
     Device device_;
     std::unique_ptr<Canvas> canvas_;
-    std::unique_ptr<Backend> backend_;
+    std::shared_ptr<Renderer> renderer_;
     std::unique_ptr<Pixmap> pixmap_;
+    GlyphCache* glyphCache_ = nullptr;
 };
 
-}
+} // namespace ink

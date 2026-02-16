@@ -1,40 +1,47 @@
 #pragma once
 
-#include "ink/types.hpp"
+#include "ink/renderer.hpp"
 #include <memory>
 
 namespace ink {
 
-class Image;
-class GLBackend;
+class GpuImpl;
 
 /**
- * GpuContext - Lightweight shared GPU resource context.
+ * GpuContext - GPU rendering context.
  *
- * Host owns platform GL context creation/switching (EGL/GLFW/etc).
- * Ink binds to the currently active GL context via MakeGLFromCurrent().
- *
- * This object owns cross-surface shared GPU resources like CPU-image texture
- * cache. Individual GL backends still own per-surface render targets (FBOs).
+ * Implements Renderer interface for GPU rendering.
+ * Create via backend-specific factory functions:
+ *   - GpuContexts::MakeGL() (include ink/gpu/gl/gl_context.hpp)
  */
-class GpuContext {
+class GpuContext : public Renderer {
 public:
-    static std::shared_ptr<GpuContext> MakeGLFromCurrent();
+    ~GpuContext() override;
 
-    ~GpuContext();
+    bool valid() const;
 
-    bool valid() const { return impl_ != nullptr; }
+    // Renderer interface
+    void beginFrame() override;
+    void endFrame() override;
+    void execute(const Recording& recording, const DrawPass& pass) override;
+    void resize(i32 w, i32 h) override;
+    std::shared_ptr<Image> makeSnapshot() const override;
+    void setGlyphCache(GlyphCache* cache) override;
+
+    // GPU-specific operations
+    void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const;
+    unsigned int textureId() const;
+    unsigned int fboId() const;
 
 private:
-    struct Impl;
-    std::shared_ptr<Impl> impl_;
+    std::shared_ptr<GpuImpl> impl_;
 
-    explicit GpuContext(std::shared_ptr<Impl> impl);
+    explicit GpuContext(std::shared_ptr<GpuImpl> impl);
 
-    // GLBackend internal API
-    u32 resolveImageTexture(const Image* image);
+    u64 resolveImageTexture(const Image* image);
 
-    friend class GLBackend;
+    friend class Surface;
+    friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<GpuImpl>);
 };
 
 } // namespace ink

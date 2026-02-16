@@ -3,7 +3,6 @@
 #include "ink/types.hpp"
 #include <cstdlib>
 #include <cstring>
-#include <algorithm>
 
 namespace ink {
 

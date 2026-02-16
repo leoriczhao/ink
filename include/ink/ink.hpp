@@ -1,6 +1,22 @@
 #pragma once
 
-// Ink - A lightweight 2D rendering library
+/**
+ * Ink - A lightweight 2D rendering library
+ *
+ * Usage:
+ *
+ *   // CPU rendering
+ *   #include <ink/ink.hpp>
+ *   auto surface = ink::Surface::MakeRaster(800, 600);
+ *   surface->canvas()->fillRect({0, 0, 100, 100}, {255, 0, 0, 255});
+ *   surface->flush();
+ *
+ *   // GPU rendering (requires #include <ink/gpu/gl/gl_context.hpp>)
+ *   auto ctx = ink::GpuContexts::MakeGL();
+ *   auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
+ *   surface->canvas()->fillRect({0, 0, 100, 100}, {255, 0, 0, 255});
+ *   surface->flush();
+ */
 
 // Version
 #include "ink/version.hpp"
@@ -26,10 +42,13 @@
 // Canvas (user-facing drawing API)
 #include "ink/canvas.hpp"
 
-// Backend (rendering execution)
-#include "ink/backend.hpp"
-#include "ink/cpu_backend.hpp"
+// GPU context (abstract)
 #include "ink/gpu/gpu_context.hpp"
+
+// GL context factory (conditional - include <ink/gpu/gl/gl_context.hpp> explicitly)
+#if INK_HAS_GL
+#include "ink/gpu/gl/gl_context.hpp"
+#endif
 
 // Pipeline (GPU pipeline stages)
 #include "ink/pipeline.hpp"

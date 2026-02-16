@@ -20,9 +20,8 @@ set(INK_CORE_SOURCES
     src/canvas.cpp
     src/surface.cpp
     src/image.cpp
-    src/cpu_backend.cpp
     src/glyph_cache.cpp
-    src/gpu/gl/gpu_context.cpp
+    src/gpu/gpu_context.cpp
 )
 
 # --- Create library ---
@@ -33,6 +32,7 @@ target_include_directories(ink
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
@@ -42,7 +42,7 @@ if(INK_ENABLE_GL)
     find_package(GLEW QUIET)
     if(OpenGL_FOUND AND GLEW_FOUND)
         target_sources(ink PRIVATE
-            src/gpu/gl/gl_backend.cpp
+            src/gpu/gl/gl_context.cpp
         )
         target_link_libraries(ink PUBLIC OpenGL::GL GLEW::GLEW)
         target_compile_definitions(ink PUBLIC INK_HAS_GL=1)
@@ -62,7 +62,7 @@ if(INK_ENABLE_VULKAN)
     find_package(Vulkan QUIET)
     if(Vulkan_FOUND)
         target_sources(ink PRIVATE
-            src/gpu/vk/vk_backend.cpp
+            src/gpu/vk/vk_context.cpp
         )
         target_link_libraries(ink PRIVATE Vulkan::Vulkan)
         target_compile_definitions(ink PUBLIC INK_HAS_VULKAN=1)
@@ -105,18 +105,26 @@ install(EXPORT inkTargets
 
 # --- Examples ---
 if(INK_BUILD_EXAMPLES)
+    find_package(SDL2 REQUIRED)
+
     add_executable(example_basic examples/example_basic.cpp)
-    target_link_libraries(example_basic PRIVATE ink)
+    target_link_libraries(example_basic PRIVATE ink SDL2::SDL2)
 
     add_executable(example_composite examples/example_composite.cpp)
-    target_link_libraries(example_composite PRIVATE ink)
+    target_link_libraries(example_composite PRIVATE ink SDL2::SDL2)
 
-    # Link EGL for headless GPU context in examples
     if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
         find_library(EGL_LIBRARY EGL)
         if(EGL_LIBRARY)
             target_link_libraries(example_basic PRIVATE ${EGL_LIBRARY})
             target_link_libraries(example_composite PRIVATE ${EGL_LIBRARY})
+        endif()
+
+        # GPU example - requires GL
+        add_executable(example_gpu examples/example_gpu.cpp)
+        target_link_libraries(example_gpu PRIVATE ink SDL2::SDL2 OpenGL::GL GLEW::GLEW)
+        if(EGL_LIBRARY)
+            target_link_libraries(example_gpu PRIVATE ${EGL_LIBRARY})
         endif()
     endif()
 endif()
@@ -141,7 +149,6 @@ if(INK_BUILD_TESTS)
         tests/test_draw_pass.cpp
         tests/test_image.cpp
         tests/test_canvas.cpp
-        tests/test_cpu_backend.cpp
         tests/test_surface.cpp
         tests/test_composite.cpp
     )
