@@ -44,8 +44,4 @@ private:
     friend std::shared_ptr<GpuContext> MakeGpuContextFromImpl(std::shared_ptr<GpuImpl>);
 };
 
-namespace GpuContexts {
-    std::shared_ptr<GpuContext> MakeGL();
-}
-
 } // namespace ink
