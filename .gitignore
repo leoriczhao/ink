@@ -10,3 +10,7 @@ out/
 *.ppm
 compile_commands.json
 .output.txt
+
+# IDE/Tools
+.junie/
+.opencode/
