@@ -21,7 +21,7 @@
 #include <cstring>
 #include <vector>
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
 // Backend-specific includes
 #if INK_HAS_METAL

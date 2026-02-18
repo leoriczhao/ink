@@ -44,7 +44,8 @@ public:
 
     bool init(id<MTLDevice> device, id<MTLLibrary> library,
               NSString* vertFunc, NSString* fragFunc,
-              MTLPixelFormat pixelFormat) {
+              MTLPixelFormat pixelFormat,
+              MTLVertexDescriptor* vertexDesc) {
         id<MTLFunction> vert = [library newFunctionWithName:vertFunc];
         id<MTLFunction> frag = [library newFunctionWithName:fragFunc];
         if (!vert || !frag) {
@@ -55,6 +56,7 @@ public:
         MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
         desc.vertexFunction = vert;
         desc.fragmentFunction = frag;
+        desc.vertexDescriptor = vertexDesc;
         desc.colorAttachments[0].pixelFormat = pixelFormat;
         desc.colorAttachments[0].blendingEnabled = YES;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;

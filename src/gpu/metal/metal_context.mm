@@ -166,12 +166,34 @@ public:
         samplerDesc.magFilter = MTLSamplerMinMagFilterNearest;
         sampler_ = [device_ newSamplerStateWithDescriptor:samplerDesc];
 
+        // Color vertex descriptor: float2 position + float4 color, stride = 24
+        MTLVertexDescriptor* colorVertDesc = [[MTLVertexDescriptor alloc] init];
+        colorVertDesc.attributes[0].format = MTLVertexFormatFloat2;
+        colorVertDesc.attributes[0].offset = 0;
+        colorVertDesc.attributes[0].bufferIndex = 0;
+        colorVertDesc.attributes[1].format = MTLVertexFormatFloat4;
+        colorVertDesc.attributes[1].offset = sizeof(float) * 2;
+        colorVertDesc.attributes[1].bufferIndex = 0;
+        colorVertDesc.layouts[0].stride = sizeof(MetalColorVertex);
+        colorVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+        // Texture vertex descriptor: float2 position + float2 texCoord, stride = 16
+        MTLVertexDescriptor* texVertDesc = [[MTLVertexDescriptor alloc] init];
+        texVertDesc.attributes[0].format = MTLVertexFormatFloat2;
+        texVertDesc.attributes[0].offset = 0;
+        texVertDesc.attributes[0].bufferIndex = 0;
+        texVertDesc.attributes[1].format = MTLVertexFormatFloat2;
+        texVertDesc.attributes[1].offset = sizeof(float) * 2;
+        texVertDesc.attributes[1].bufferIndex = 0;
+        texVertDesc.layouts[0].stride = sizeof(MetalTexVertex);
+        texVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
         // Create pipelines
         if (!colorPipeline_.init(device_, library_, @"color_vertex", @"color_fragment",
-                                 MTLPixelFormatBGRA8Unorm))
+                                 MTLPixelFormatBGRA8Unorm, colorVertDesc))
             return false;
         if (!texPipeline_.init(device_, library_, @"tex_vertex", @"tex_fragment",
-                               MTLPixelFormatBGRA8Unorm))
+                               MTLPixelFormatBGRA8Unorm, texVertDesc))
             return false;
 
         return framebuffer_.init(device_, w, h);
@@ -421,9 +443,15 @@ public:
             float(framebuffer_.width), float(framebuffer_.height));
 
         [encoder_ setRenderPipelineState:colorPipeline_.state];
-        [encoder_ setVertexBytes:colorVerts_.data()
-                          length:colorVerts_.size() * sizeof(MetalColorVertex)
-                         atIndex:0];
+        NSUInteger dataLen = colorVerts_.size() * sizeof(MetalColorVertex);
+        if (dataLen <= 4096) {
+            [encoder_ setVertexBytes:colorVerts_.data() length:dataLen atIndex:0];
+        } else {
+            id<MTLBuffer> buf = [device_ newBufferWithBytes:colorVerts_.data()
+                                                    length:dataLen
+                                                   options:MTLResourceStorageModeShared];
+            [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
+        }
         [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
         [encoder_ drawPrimitives:MTLPrimitiveTypeTriangle
                      vertexStart:0
@@ -438,9 +466,15 @@ public:
             float(framebuffer_.width), float(framebuffer_.height));
 
         [encoder_ setRenderPipelineState:texPipeline_.state];
-        [encoder_ setVertexBytes:texVerts_.data()
-                          length:texVerts_.size() * sizeof(MetalTexVertex)
-                         atIndex:0];
+        NSUInteger dataLen = texVerts_.size() * sizeof(MetalTexVertex);
+        if (dataLen <= 4096) {
+            [encoder_ setVertexBytes:texVerts_.data() length:dataLen atIndex:0];
+        } else {
+            id<MTLBuffer> buf = [device_ newBufferWithBytes:texVerts_.data()
+                                                    length:dataLen
+                                                   options:MTLResourceStorageModeShared];
+            [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
+        }
         [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
         [encoder_ setFragmentTexture:tex atIndex:0];
         [encoder_ setFragmentSamplerState:sampler_ atIndex:0];

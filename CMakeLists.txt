@@ -5,11 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Build options ---
-option(INK_ENABLE_GL      "Enable OpenGL backend"      ON)
-option(INK_ENABLE_METAL   "Enable Metal backend"       OFF)
+option(INK_ENABLE_GL      "Enable OpenGL backend"      OFF)
+option(INK_ENABLE_METAL   "Enable Metal backend"       ON)
 option(INK_ENABLE_VULKAN  "Enable Vulkan backend"      OFF)
 option(INK_BUILD_TESTS    "Build tests"                OFF)
-option(INK_BUILD_EXAMPLES "Build examples"             OFF)
+option(INK_BUILD_EXAMPLES "Build examples"             ON)
 option(BUILD_SHARED_LIBS  "Build as shared library"    OFF)
 
 # --- Core source files (always compiled) ---
