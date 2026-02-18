@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Build options ---
 option(INK_ENABLE_GL      "Enable OpenGL backend"      ON)
+option(INK_ENABLE_METAL   "Enable Metal backend"       OFF)
 option(INK_ENABLE_VULKAN  "Enable Vulkan backend"      OFF)
 option(INK_BUILD_TESTS    "Build tests"                OFF)
 option(INK_BUILD_EXAMPLES "Build examples"             OFF)
@@ -55,6 +56,25 @@ if(INK_ENABLE_GL)
             message(STATUS "ink: GLEW not found, GL backend disabled")
         endif()
     endif()
+endif()
+
+# --- Metal backend (Apple only) ---
+if(INK_ENABLE_METAL AND APPLE)
+    enable_language(OBJCXX)
+    target_sources(ink PRIVATE
+        src/gpu/metal/metal_context.mm
+    )
+    target_link_libraries(ink PUBLIC
+        "-framework Metal"
+        "-framework Foundation"
+    )
+    target_compile_definitions(ink PUBLIC INK_HAS_METAL=1)
+    set_source_files_properties(src/gpu/metal/metal_context.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+    message(STATUS "ink: Metal backend enabled")
+elseif(INK_ENABLE_METAL AND NOT APPLE)
+    message(STATUS "ink: Metal backend requires Apple platform, disabled")
 endif()
 
 # --- Vulkan backend (future) ---
