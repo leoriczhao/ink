@@ -83,9 +83,10 @@ fragment float4 tex_fragment(TexOut in [[stage_in]],
 id<MTLTexture> MetalTextureCache::resolve(id<MTLDevice> device, const Image* image) {
     if (!image || !image->valid()) return nil;
     if (image->isGpuBacked()) {
-        // For Metal-backed images, the handle stores the texture pointer
-        // This is a simplification; real code would need proper bridging
-        return nil;
+        // The backend texture handle stores a bridged MTLTexture pointer
+        u64 handle = image->backendTextureHandle();
+        if (handle == 0) return nil;
+        return (__bridge id<MTLTexture>)(void*)handle;
     }
 
     u64 imgId = image->uniqueId();
@@ -215,6 +216,9 @@ public:
     bool valid() const override { return framebuffer_.texture != nil; }
 
     void beginFrame() override {
+        // Commit any pending work from a previous frame that was never flushed
+        commitIfNeeded();
+
         commandBuffer_ = [commandQueue_ commandBuffer];
         MTLRenderPassDescriptor* rpDesc = framebuffer_.renderPassDescriptor();
         encoder_ = [commandBuffer_ renderCommandEncoderWithDescriptor:rpDesc];
@@ -225,15 +229,8 @@ public:
 
     void endFrame() override {
         flushColorBatch();
-        if (encoder_) {
-            [encoder_ endEncoding];
-            encoder_ = nil;
-        }
-        if (commandBuffer_) {
-            [commandBuffer_ commit];
-            [commandBuffer_ waitUntilCompleted];
-            commandBuffer_ = nil;
-        }
+        // Don't commit here — Surface::flush() calls execute() after endFrame(),
+        // and execute() needs the active encoder. Commit happens in execute().
     }
 
     void resize(i32 w, i32 h) override {
@@ -247,6 +244,9 @@ public:
         recording.dispatch(*this, pass);
         flushColorBatch();
         currentRecording_ = nullptr;
+
+        // Commit the command buffer after executing all draw ops
+        commitIfNeeded();
     }
 
     // DrawOpVisitor interface
@@ -306,17 +306,23 @@ public:
     void visitSetClip(Rect r) override {
         flushColorBatch();
         if (encoder_) {
-            // Metal scissor rect - note: Metal uses top-left origin
-            MTLScissorRect scissor;
-            scissor.x = NSUInteger(std::max(0.0f, r.x));
-            scissor.y = NSUInteger(std::max(0.0f, r.y));
-            scissor.width = NSUInteger(std::max(0.0f, r.w));
-            scissor.height = NSUInteger(std::max(0.0f, r.h));
-            // Clamp to framebuffer bounds
-            if (scissor.x + scissor.width > NSUInteger(framebuffer_.width))
-                scissor.width = NSUInteger(framebuffer_.width) - scissor.x;
-            if (scissor.y + scissor.height > NSUInteger(framebuffer_.height))
-                scissor.height = NSUInteger(framebuffer_.height) - scissor.y;
+            NSUInteger fbW = NSUInteger(framebuffer_.width);
+            NSUInteger fbH = NSUInteger(framebuffer_.height);
+
+            NSUInteger sx = NSUInteger(std::max(0.0f, r.x));
+            NSUInteger sy = NSUInteger(std::max(0.0f, r.y));
+
+            // Clamp origin to framebuffer bounds to avoid unsigned underflow
+            if (sx >= fbW) sx = fbW;
+            if (sy >= fbH) sy = fbH;
+
+            NSUInteger sw = NSUInteger(std::max(0.0f, r.w));
+            NSUInteger sh = NSUInteger(std::max(0.0f, r.h));
+
+            if (sx + sw > fbW) sw = fbW - sx;
+            if (sy + sh > fbH) sh = fbH - sy;
+
+            MTLScissorRect scissor = { sx, sy, sw, sh };
             [encoder_ setScissorRect:scissor];
         }
     }
@@ -457,6 +463,18 @@ public:
                      vertexStart:0
                      vertexCount:colorVerts_.size()];
         colorVerts_.clear();
+    }
+
+    void commitIfNeeded() {
+        if (encoder_) {
+            [encoder_ endEncoding];
+            encoder_ = nil;
+        }
+        if (commandBuffer_) {
+            [commandBuffer_ commit];
+            [commandBuffer_ waitUntilCompleted];
+            commandBuffer_ = nil;
+        }
     }
 
     void flushTexBatch(id<MTLTexture> tex) {
