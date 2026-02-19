@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <cmath>
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
 static void drawScene(ink::Canvas* canvas, int W, int H, float t) {
     using ink::f32;

@@ -2,25 +2,35 @@
  * example_gpu.cpp - GPU rendering with ink, displayed via SDL2
  *
  * Demonstrates:
- *   - Creating GpuContext via GpuContexts::MakeGL()
+ *   - Creating GpuContext via backend-specific factory
  *   - Creating GPU Surface via Surface::MakeGpu(ctx, w, h)
- *   - Real-time GPU rendering with readback
+ *   - Real-time GPU rendering with pixel readback
  *
- * Build:
+ * On macOS with Metal:
+ *   cmake -B build -DINK_BUILD_EXAMPLES=ON -DINK_ENABLE_METAL=ON && cmake --build build
+ *
+ * On Linux with OpenGL:
  *   cmake -B build -DINK_BUILD_EXAMPLES=ON -DINK_ENABLE_GL=ON && cmake --build build
+ *
  *   ./build/example_gpu
  */
 
 #include <ink/ink.hpp>
-#include <ink/gpu/gl/gl_context.hpp>
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
+// Backend-specific includes
+#if INK_HAS_METAL
+#include <ink/gpu/metal/metal_context.hpp>
+#elif INK_HAS_GL
+#include <ink/gpu/gl/gl_context.hpp>
 #include <EGL/egl.h>
 #include <GL/glew.h>
+#endif
 
 static void drawScene(ink::Canvas* canvas, int W, int H, float t) {
     using ink::f32;
@@ -66,7 +76,81 @@ static void drawScene(ink::Canvas* canvas, int W, int H, float t) {
     canvas->fillRect({fpsX, f32(H) - 30, 80, 20}, {255, 200, 0, 200});
 }
 
+// ---- Backend initialization helpers ----
+
+#if INK_HAS_METAL
+
+static std::shared_ptr<ink::GpuContext> createGpuContext() {
+    auto ctx = ink::GpuContexts::MakeMetal();
+    if (!ctx) {
+        std::printf("Failed to create Metal GpuContext\n");
+    }
+    return ctx;
+}
+
+static void destroyGpuBackend() {
+    // Metal needs no explicit teardown
+}
+
+static const char* backendName() { return "Metal"; }
+
+#elif INK_HAS_GL
+
+static EGLDisplay g_eglDisplay = EGL_NO_DISPLAY;
+static EGLSurface g_eglSurf = EGL_NO_SURFACE;
+static EGLContext  g_eglCtx = EGL_NO_CONTEXT;
+
+static std::shared_ptr<ink::GpuContext> createGpuContext() {
+    g_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (g_eglDisplay == EGL_NO_DISPLAY) {
+        std::printf("EGL display not available\n");
+        return nullptr;
+    }
+
+    eglInitialize(g_eglDisplay, nullptr, nullptr);
+
+    EGLint configAttribs[] = {
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+        EGL_NONE
+    };
+    EGLConfig config;
+    EGLint numConfigs;
+    eglChooseConfig(g_eglDisplay, configAttribs, &config, 1, &numConfigs);
+
+    EGLint pbufAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    g_eglSurf = eglCreatePbufferSurface(g_eglDisplay, config, pbufAttribs);
+
+    eglBindAPI(EGL_OPENGL_API);
+    g_eglCtx = eglCreateContext(g_eglDisplay, config, EGL_NO_CONTEXT, nullptr);
+    eglMakeCurrent(g_eglDisplay, g_eglSurf, g_eglSurf, g_eglCtx);
+
+    auto ctx = ink::GpuContexts::MakeGL();
+    if (!ctx) {
+        std::printf("Failed to create GL GpuContext\n");
+    }
+    return ctx;
+}
+
+static void destroyGpuBackend() {
+    if (g_eglDisplay != EGL_NO_DISPLAY) {
+        eglMakeCurrent(g_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (g_eglCtx != EGL_NO_CONTEXT) eglDestroyContext(g_eglDisplay, g_eglCtx);
+        if (g_eglSurf != EGL_NO_SURFACE) eglDestroySurface(g_eglDisplay, g_eglSurf);
+        eglTerminate(g_eglDisplay);
+    }
+}
+
+static const char* backendName() { return "OpenGL"; }
+
+#else
+#error "No GPU backend available. Build with -DINK_ENABLE_METAL=ON or -DINK_ENABLE_GL=ON"
+#endif
+
 int main(int argc, char* argv[]) {
+    (void)argc; (void)argv;
     const int W = 600, H = 400;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -74,8 +158,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    char title[128];
+    std::snprintf(title, sizeof(title), "ink - GPU Rendering (%s)", backendName());
+
     SDL_Window* window = SDL_CreateWindow(
-        "ink - GPU Rendering (OpenGL)",
+        title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         W, H,
         SDL_WINDOW_SHOWN
@@ -96,65 +183,28 @@ int main(int argc, char* argv[]) {
 
     SDL_Texture* texture = SDL_CreateTexture(
         renderer,
-        SDL_PIXELFORMAT_ARGB8888,
+        SDL_PIXELFORMAT_ABGR8888,
         SDL_TEXTUREACCESS_STREAMING,
         W, H
     );
 
-    // ---- Initialize EGL for headless GPU context ----
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (display == EGL_NO_DISPLAY) {
-        std::printf("EGL display not available\n");
-        SDL_DestroyTexture(texture);
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    eglInitialize(display, nullptr, nullptr);
-
-    EGLint configAttribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-        EGL_NONE
-    };
-    EGLConfig config;
-    EGLint numConfigs;
-    eglChooseConfig(display, configAttribs, &config, 1, &numConfigs);
-
-    EGLint pbufAttribs[] = {EGL_WIDTH, W, EGL_HEIGHT, H, EGL_NONE};
-    EGLSurface eglSurf = eglCreatePbufferSurface(display, config, pbufAttribs);
-
-    eglBindAPI(EGL_OPENGL_API);
-    EGLContext eglCtx = eglCreateContext(display, config, EGL_NO_CONTEXT, nullptr);
-    eglMakeCurrent(display, eglSurf, eglSurf, eglCtx);
-
-    // ---- Create ink GpuContext ----
-    auto gpuContext = ink::GpuContexts::MakeGL();
+    // ---- Create GPU context (backend-specific) ----
+    auto gpuContext = createGpuContext();
     if (!gpuContext) {
-        std::printf("Failed to create ink GpuContext\n");
-        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        eglDestroyContext(display, eglCtx);
-        eglDestroySurface(display, eglSurf);
-        eglTerminate(display);
         SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
+        destroyGpuBackend();
         return 1;
     }
 
-    // ---- Create GPU Surface (simplified API!) ----
+    // ---- Create GPU Surface ----
     auto surface = ink::Surface::MakeGpu(gpuContext, W, H);
     if (!surface) {
         std::printf("Failed to create GPU Surface\n");
-        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        eglDestroyContext(display, eglCtx);
-        eglDestroySurface(display, eglSurf);
-        eglTerminate(display);
+        gpuContext.reset();
+        destroyGpuBackend();
         SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -162,29 +212,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Get GLBackend for readback
-    auto* pm = surface->peekPixels();
     std::vector<ink::u8> pixels(W * H * 4);
-    ink::u8* pixelData = pixels.data();
 
-    // Find GLBackend for readPixels
-    // Note: This is a bit hacky, ideally we'd have a cleaner way
-    // For now, we'll use a workaround
-    std::printf("ink GPU rendering with OpenGL + SDL2 display\n");
-    std::printf("Using simplified API: Surface::MakeGpu(ctx, w, h)\n");
-    std::printf("Press ESC or close window to exit\n");
-
-    // We need access to GLBackend for readPixels
-    // Since surface doesn't expose it, we'll create a separate path
-    // Actually, let's check if surface is GPU-backed
+    std::printf("ink GPU rendering with %s + SDL2 display\n", backendName());
     std::printf("Surface is GPU: %s\n", surface->isGPU() ? "yes" : "no");
+    std::printf("Press ESC or close window to exit\n");
 
     bool running = true;
     float t = 0.0f;
-
-    // For GPU readback, we need direct GL access
-    // The cleanest way is to include GL headers and call glReadPixels
-    // But for this example, let's show the pattern
 
     while (running) {
         SDL_Event event;
@@ -200,15 +235,15 @@ int main(int argc, char* argv[]) {
         surface->endFrame();
         surface->flush();
 
-        // Read pixels from GPU (GL's FBO is bottom-up, need to flip)
-        glReadPixels(0, 0, W, H, GL_BGRA, GL_UNSIGNED_BYTE, pixelData);
+        // Read pixels from GPU via GpuContext::readPixels (RGBA format)
+        gpuContext->readPixels(pixels.data(), 0, 0, W, H);
 
-        // Flip vertically and update SDL texture
+        // GPU framebuffers are typically bottom-up; flip vertically for SDL
         std::vector<ink::u8> flipped(W * H * 4);
         for (int y = 0; y < H; ++y) {
-            memcpy(flipped.data() + y * W * 4,
-                   pixelData + (H - 1 - y) * W * 4,
-                   W * 4);
+            std::memcpy(flipped.data() + y * W * 4,
+                        pixels.data() + (H - 1 - y) * W * 4,
+                        W * 4);
         }
 
         SDL_UpdateTexture(texture, nullptr, flipped.data(), W * 4);
@@ -222,11 +257,7 @@ int main(int argc, char* argv[]) {
     // Cleanup
     surface.reset();
     gpuContext.reset();
-
-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(display, eglCtx);
-    eglDestroySurface(display, eglSurf);
-    eglTerminate(display);
+    destroyGpuBackend();
 
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);

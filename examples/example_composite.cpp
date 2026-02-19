@@ -11,7 +11,7 @@
 #include <cmath>
 #include <vector>
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
 static void drawBackground(ink::Canvas* c, int W, int H) {
     using ink::f32;

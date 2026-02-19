@@ -5,10 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Build options ---
-option(INK_ENABLE_GL      "Enable OpenGL backend"      ON)
+option(INK_ENABLE_GL      "Enable OpenGL backend"      OFF)
+option(INK_ENABLE_METAL   "Enable Metal backend"       ON)
 option(INK_ENABLE_VULKAN  "Enable Vulkan backend"      OFF)
 option(INK_BUILD_TESTS    "Build tests"                OFF)
-option(INK_BUILD_EXAMPLES "Build examples"             OFF)
+option(INK_BUILD_EXAMPLES "Build examples"             ON)
 option(BUILD_SHARED_LIBS  "Build as shared library"    OFF)
 
 # --- Core source files (always compiled) ---
@@ -55,6 +56,25 @@ if(INK_ENABLE_GL)
             message(STATUS "ink: GLEW not found, GL backend disabled")
         endif()
     endif()
+endif()
+
+# --- Metal backend (Apple only) ---
+if(INK_ENABLE_METAL AND APPLE)
+    enable_language(OBJCXX)
+    target_sources(ink PRIVATE
+        src/gpu/metal/metal_context.mm
+    )
+    target_link_libraries(ink PUBLIC
+        "-framework Metal"
+        "-framework Foundation"
+    )
+    target_compile_definitions(ink PUBLIC INK_HAS_METAL=1)
+    set_source_files_properties(src/gpu/metal/metal_context.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+    message(STATUS "ink: Metal backend enabled")
+elseif(INK_ENABLE_METAL AND NOT APPLE)
+    message(STATUS "ink: Metal backend requires Apple platform, disabled")
 endif()
 
 # --- Vulkan backend (future) ---
@@ -113,18 +133,30 @@ if(INK_BUILD_EXAMPLES)
     add_executable(example_composite examples/example_composite.cpp)
     target_link_libraries(example_composite PRIVATE ink SDL2::SDL2)
 
+    # GPU example - requires at least one GPU backend
+    set(INK_HAS_GPU_BACKEND FALSE)
+
+    if(INK_ENABLE_METAL AND APPLE)
+        set(INK_HAS_GPU_BACKEND TRUE)
+    endif()
     if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
+        set(INK_HAS_GPU_BACKEND TRUE)
         find_library(EGL_LIBRARY EGL)
         if(EGL_LIBRARY)
             target_link_libraries(example_basic PRIVATE ${EGL_LIBRARY})
             target_link_libraries(example_composite PRIVATE ${EGL_LIBRARY})
         endif()
+    endif()
 
-        # GPU example - requires GL
+    if(INK_HAS_GPU_BACKEND)
         add_executable(example_gpu examples/example_gpu.cpp)
-        target_link_libraries(example_gpu PRIVATE ink SDL2::SDL2 OpenGL::GL GLEW::GLEW)
-        if(EGL_LIBRARY)
-            target_link_libraries(example_gpu PRIVATE ${EGL_LIBRARY})
+        target_link_libraries(example_gpu PRIVATE ink SDL2::SDL2)
+
+        if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
+            target_link_libraries(example_gpu PRIVATE OpenGL::GL GLEW::GLEW)
+            if(EGL_LIBRARY)
+                target_link_libraries(example_gpu PRIVATE ${EGL_LIBRARY})
+            endif()
         endif()
     endif()
 endif()
