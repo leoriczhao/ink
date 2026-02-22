@@ -183,3 +183,26 @@ if(INK_BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(ink_tests)
 endif()
+
+# --- Documentation ---
+find_package(Doxygen QUIET)
+find_program(SPHINX_BUILD sphinx-build)
+
+if(DOXYGEN_FOUND AND SPHINX_BUILD)
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        COMMAND ${SPHINX_BUILD} -b html
+                ${CMAKE_SOURCE_DIR}/docs
+                ${CMAKE_SOURCE_DIR}/docs/_build/sphinx
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating documentation (Doxygen + Sphinx)"
+        VERBATIM
+    )
+elseif(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating Doxygen documentation (sphinx-build not found)"
+        VERBATIM
+    )
+endif()

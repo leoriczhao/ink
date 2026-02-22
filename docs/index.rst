@@ -1,16 +1,27 @@
-ink documentation
+ink Documentation
 =================
 
-A lightweight 2D rendering library with pluggable backends.
-
-ink provides a simple Canvas API for drawing 2D primitives (rectangles, lines,
-polylines, text, images) with a unified record-then-execute architecture.
+**ink** is a lightweight C++17 2D rendering library with pluggable backends
+(CPU software rasterization, OpenGL 3.3+, planned Vulkan).
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
+   :caption: User Guide
 
-   architecture
-   building
-   usage
-   api
+   guide/quickstart
+   guide/backends
+   guide/compositing
+   guide/building
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference
+
+   api/surface
+   api/canvas
+   api/image
+   api/pixmap
+   api/recording
+   api/gpu_context
+   api/glyph_cache
+   api/types

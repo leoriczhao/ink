@@ -1,12 +1,47 @@
+# Doxyfile for ink library
+
 PROJECT_NAME           = "ink"
-PROJECT_BRIEF          = "A lightweight 2D graphics library"
+PROJECT_NUMBER         = "0.2.0"
+PROJECT_BRIEF          = "A lightweight 2D rendering library with pluggable backends"
+
 OUTPUT_DIRECTORY       = docs/_build/doxygen
-INPUT                  = include src
+INPUT                  = include/ink
 RECURSIVE              = YES
-GENERATE_XML           = YES
-GENERATE_HTML          = NO
-GENERATE_LATEX         = NO
-XML_OUTPUT             = xml
-FILE_PATTERNS          = *.h *.hpp *.cpp
+FILE_PATTERNS          = *.hpp *.h
+
 EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+
+# Generate XML for Breathe
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+
+# Generate HTML as standalone reference
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+
+GENERATE_LATEX         = NO
+
+# Better output
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+BUILTIN_STL_SUPPORT    = YES
+SORT_BRIEF_DOCS        = YES
+SORT_MEMBERS_CTORS_1ST = YES
+
+# Source browsing
+SOURCE_BROWSER         = NO
+VERBATIM_HEADERS       = NO
+
+# Graphs
+HAVE_DOT               = YES
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = NO
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+
 QUIET                  = YES
+WARNINGS               = YES

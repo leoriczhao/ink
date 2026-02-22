@@ -1,5 +1,10 @@
 #pragma once
 
+/**
+ * @file image.hpp
+ * @brief Immutable image snapshot for compositing and drawing.
+ */
+
 #include "ink/types.hpp"
 #include "ink/pixmap.hpp"
 #include <memory>
@@ -7,7 +12,7 @@
 namespace ink {
 
 /**
- * Image - An immutable snapshot of pixel data.
+ * @brief An immutable snapshot of pixel data.
  *
  * Images are created from Surfaces via makeSnapshot() and can be drawn
  * onto any Surface via canvas->drawImage(). This is the mechanism for
@@ -15,20 +20,29 @@ namespace ink {
  */
 class Image {
 public:
+    /// @brief Storage backend for the image data.
     enum class StorageType : u8 {
-        CpuPixmap,
-        GpuTexture
+        CpuPixmap,   ///< CPU-side pixel buffer.
+        GpuTexture   ///< GPU texture handle.
     };
 
-    // Create an image by copying pixel data from a Pixmap
+    /// @brief Create an image by copying pixel data from a Pixmap.
+    /// @param src Source pixmap to copy from.
+    /// @return Shared pointer to the new Image.
     static std::shared_ptr<Image> MakeFromPixmap(const Pixmap& src);
 
-    // Create an image wrapping existing pixel data (caller must keep data alive)
+    /// @brief Create an image wrapping existing pixel data (caller must keep data alive).
+    /// @param src Source pixmap (data is not copied).
+    /// @return Shared pointer to the new Image.
     static std::shared_ptr<Image> MakeFromPixmapNoCopy(const Pixmap& src);
 
-    // Create an image from a backend-specific GPU texture handle.
-    // The handle is opaque (e.g. GLuint for GL, VkImage for Vulkan).
-    // The optional lifetime token can hold a custom deleter to release the texture.
+    /// @brief Create an image from a backend-specific GPU texture handle.
+    /// @param textureHandle Opaque handle (e.g. GLuint for GL, VkImage for Vulkan).
+    /// @param width Texture width in pixels.
+    /// @param height Texture height in pixels.
+    /// @param fmt Pixel format (default RGBA8888).
+    /// @param lifetimeToken Optional shared_ptr whose destructor releases the texture.
+    /// @return Shared pointer to the new Image.
     static std::shared_ptr<Image> MakeFromBackendTexture(
         u64 textureHandle,
         i32 width,
@@ -36,35 +50,73 @@ public:
         PixelFormat fmt = PixelFormat::RGBA8888,
         std::shared_ptr<void> lifetimeToken = nullptr);
 
-    // Convenience: create from a GL texture ID (delegates to MakeFromBackendTexture).
+    /// @brief Convenience: create from a GL texture ID.
+    /// @param textureId OpenGL texture name.
+    /// @param width Texture width in pixels.
+    /// @param height Texture height in pixels.
+    /// @param fmt Pixel format (default RGBA8888).
+    /// @param lifetimeToken Optional shared_ptr whose destructor releases the texture.
+    /// @return Shared pointer to the new Image.
     static std::shared_ptr<Image> MakeFromGLTexture(u32 textureId,
                                                     i32 width,
                                                     i32 height,
                                                     PixelFormat fmt = PixelFormat::RGBA8888,
                                                     std::shared_ptr<void> lifetimeToken = nullptr);
 
+    /// @brief Get image width.
+    /// @return Width in pixels.
     i32 width() const { return info_.width; }
+
+    /// @brief Get image height.
+    /// @return Height in pixels.
     i32 height() const { return info_.height; }
+
+    /// @brief Get pixel format.
+    /// @return The pixel format of this image.
     PixelFormat format() const { return info_.format; }
+
+    /// @brief Get full pixmap info.
+    /// @return Reference to the PixmapInfo descriptor.
     const PixmapInfo& info() const { return info_; }
 
+    /// @brief Get raw pixel pointer (CPU-backed images only).
+    /// @return Pointer to pixel data, or nullptr for GPU-backed images.
     const void* pixels() const { return pixels_; }
+
+    /// @brief Get pixel data as 32-bit words.
+    /// @return Pointer to pixel data cast to u32*.
     const u32* pixels32() const { return static_cast<const u32*>(pixels_); }
+
+    /// @brief Get row stride in bytes.
+    /// @return Bytes per row.
     i32 stride() const { return info_.stride; }
 
+    /// @brief Get the storage type.
+    /// @return StorageType::CpuPixmap or StorageType::GpuTexture.
     StorageType storageType() const { return storageType_; }
+
+    /// @brief Check if image is CPU-backed.
+    /// @return True if stored as a CPU pixmap.
     bool isCpuBacked() const { return storageType_ == StorageType::CpuPixmap; }
+
+    /// @brief Check if image is GPU-backed.
+    /// @return True if stored as a GPU texture.
     bool isGpuBacked() const { return storageType_ == StorageType::GpuTexture; }
 
-    // Returns the opaque backend texture handle for GPU-backed images; 0 otherwise.
+    /// @brief Get the opaque backend texture handle.
+    /// @return Texture handle for GPU-backed images; 0 otherwise.
     u64 backendTextureHandle() const { return backendTexture_; }
 
-    // Convenience: returns GL texture id (truncates u64 to u32).
+    /// @brief Get the GL texture ID.
+    /// @return OpenGL texture name (truncated from u64 to u32).
     u32 glTextureId() const { return static_cast<u32>(backendTexture_); }
 
-    // Stable identity used for backend caches.
+    /// @brief Get a stable unique identity for backend caches.
+    /// @return Unique image ID.
     u64 uniqueId() const { return id_; }
 
+    /// @brief Check if the image contains valid data.
+    /// @return True if dimensions are positive and backing storage is present.
     bool valid() const {
         if (info_.width <= 0 || info_.height <= 0) return false;
         if (storageType_ == StorageType::CpuPixmap) return pixels_ != nullptr;

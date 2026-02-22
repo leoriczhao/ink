@@ -248,6 +248,27 @@ ink/
     └── stb_truetype.h       # Font rasterization
 ```
 
+## Documentation
+
+Full documentation is generated with [Doxygen](https://www.doxygen.nl/) (API reference) and [Sphinx](https://www.sphinx-doc.org/) + [Breathe](https://breathe.readthedocs.io/) (user guides).
+
+### Building docs
+
+```bash
+# One-step via CMake (requires doxygen and sphinx-build)
+cmake -B build
+cmake --build build --target docs
+
+# Or manually
+doxygen Doxyfile                          # API reference → docs/_build/doxygen/html/
+sphinx-build docs docs/_build/sphinx      # Full site     → docs/_build/sphinx/
+```
+
+### Documentation contents
+
+- **User Guide** — Quick start, backend selection (CPU / GL / Metal), multi-layer compositing, build instructions.
+- **API Reference** — Auto-generated from Doxygen comments in `include/ink/*.hpp`.
+
 ## License
 
 MIT
