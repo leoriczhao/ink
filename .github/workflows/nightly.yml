@@ -19,6 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute nightly version
+        id: nightly_meta
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=nightly-${DATE}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -50,9 +57,7 @@ jobs:
 
       - name: Package nightly binary
         run: |
-          DATE=$(date -u +%Y%m%d)
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          PKG=ink-nightly-${DATE}-${SHORT_SHA}-linux-x64-${{ matrix.variant }}
+          PKG=ink-${{ steps.nightly_meta.outputs.version }}-linux-x64-${{ matrix.variant }}
           mkdir -p ${PKG}/{lib,include}
           cp build/libink.a ${PKG}/lib/
           cp -r include/ink ${PKG}/include/
@@ -61,23 +66,28 @@ jobs:
       - name: Upload nightly binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-${{ matrix.variant }}
-          path: ink-nightly-*-linux-x64-${{ matrix.variant }}.tar.gz
+          name: ${{ steps.nightly_meta.outputs.version }}-${{ matrix.variant }}
+          path: ink-${{ steps.nightly_meta.outputs.version }}-linux-x64-${{ matrix.variant }}.tar.gz
 
   source-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Package nightly source
+      - name: Compute nightly version
+        id: nightly_meta
         run: |
           DATE=$(date -u +%Y%m%d)
           SHORT_SHA=$(git rev-parse --short HEAD)
-          VERSION=nightly-${DATE}-${SHORT_SHA}
+          echo "version=nightly-${DATE}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Package nightly source
+        run: |
+          VERSION=${{ steps.nightly_meta.outputs.version }}
           git archive --format=tar.gz --prefix=ink-${VERSION}/ -o ink-${VERSION}-src.tar.gz ${GITHUB_SHA}
 
       - name: Upload nightly source artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-src
-          path: ink-nightly-*-src.tar.gz
+          name: ${{ steps.nightly_meta.outputs.version }}-src
+          path: ink-${{ steps.nightly_meta.outputs.version }}-src.tar.gz
