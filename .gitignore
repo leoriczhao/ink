@@ -14,3 +14,4 @@ compile_commands.json
 # IDE/Tools
 .junie/
 .opencode/
+docs/_build/

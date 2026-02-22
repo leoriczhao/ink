@@ -1,6 +1,9 @@
 #pragma once
 
 /**
+ * @file ink.hpp
+ * @brief Convenience header that includes the entire ink public API.
+ *
  * Ink - A lightweight 2D rendering library
  *
  * Usage:
