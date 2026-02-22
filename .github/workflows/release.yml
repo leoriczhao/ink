@@ -26,9 +26,9 @@ jobs:
       - name: Configure (Release)
         run: |
           if [ "${{ matrix.variant }}" = "gl" ]; then
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=ON
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=ON -DINK_BUILD_EXAMPLES=OFF
           else
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=OFF
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=OFF -DINK_BUILD_EXAMPLES=OFF
           fi
 
       - name: Build
@@ -37,9 +37,9 @@ jobs:
       - name: Test
         run: |
           if [ "${{ matrix.variant }}" = "gl" ]; then
-            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=ON
+            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=ON -DINK_BUILD_EXAMPLES=OFF
           else
-            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
+            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF -DINK_BUILD_EXAMPLES=OFF
           fi
           cmake --build build-test -j$(nproc)
           ctest --test-dir build-test --output-on-failure

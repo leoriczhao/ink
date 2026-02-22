@@ -67,7 +67,7 @@ cmake --build build
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `INK_ENABLE_GL` | `ON` | Enable OpenGL backend |
+| `INK_ENABLE_GL` | `OFF` | Enable OpenGL backend |
 | `INK_ENABLE_VULKAN` | `OFF` | Enable Vulkan backend |
 | `INK_BUILD_TESTS` | `OFF` | Build test suite |
 | `INK_BUILD_EXAMPLES` | `OFF` | Build examples |
