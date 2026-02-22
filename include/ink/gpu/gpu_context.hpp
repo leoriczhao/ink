@@ -21,7 +21,7 @@ public:
     bool valid() const;
 
     // Renderer interface
-    void beginFrame() override;
+    void beginFrame(Color clearColor = {0, 0, 0, 255}) override;
     void endFrame() override;
     void execute(const Recording& recording, const DrawPass& pass) override;
     void resize(i32 w, i32 h) override;

@@ -215,12 +215,12 @@ public:
     // GpuImpl interface
     bool valid() const override { return framebuffer_.texture != nil; }
 
-    void beginFrame() override {
+    void beginFrame(Color clearColor = {0, 0, 0, 255}) override {
         // Commit any pending work from a previous frame that was never flushed
         commitIfNeeded();
 
         commandBuffer_ = [commandQueue_ commandBuffer];
-        MTLRenderPassDescriptor* rpDesc = framebuffer_.renderPassDescriptor();
+        MTLRenderPassDescriptor* rpDesc = framebuffer_.renderPassDescriptor(clearColor);
         encoder_ = [commandBuffer_ renderCommandEncoderWithDescriptor:rpDesc];
         MTLViewport vp = {0, 0,
             (double)framebuffer_.width, (double)framebuffer_.height, 0, 1};

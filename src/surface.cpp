@@ -54,18 +54,15 @@ void Surface::resize(i32 w, i32 h) {
     }
 }
 
-void Surface::beginFrame() {
+void Surface::beginFrame(Color clearColor) {
     device_.beginFrame();
     if (renderer_) {
-        renderer_->beginFrame();
+        renderer_->beginFrame(clearColor);
     }
 }
 
 void Surface::endFrame() {
     device_.endFrame();
-    if (renderer_) {
-        renderer_->endFrame();
-    }
 }
 
 void Surface::flush() {
@@ -74,6 +71,7 @@ void Surface::flush() {
 
     DrawPass pass = DrawPass::create(*recording);
     renderer_->execute(*recording, pass);
+    renderer_->endFrame();
 }
 
 std::shared_ptr<Image> Surface::makeSnapshot() const {

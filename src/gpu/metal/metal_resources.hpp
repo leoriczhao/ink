@@ -98,12 +98,14 @@ public:
         createTexture(device);
     }
 
-    MTLRenderPassDescriptor* renderPassDescriptor() const {
+    MTLRenderPassDescriptor* renderPassDescriptor(Color clearColor = {0, 0, 0, 255}) const {
         MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
         desc.colorAttachments[0].texture = texture;
         desc.colorAttachments[0].loadAction = MTLLoadActionClear;
         desc.colorAttachments[0].storeAction = MTLStoreActionStore;
-        desc.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+        desc.colorAttachments[0].clearColor = MTLClearColorMake(
+            clearColor.r / 255.0, clearColor.g / 255.0,
+            clearColor.b / 255.0, clearColor.a / 255.0);
         return desc;
     }
 

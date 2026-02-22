@@ -22,7 +22,7 @@ class Renderer {
 public:
     virtual ~Renderer() = default;
 
-    virtual void beginFrame() = 0;
+    virtual void beginFrame(Color clearColor = {0, 0, 0, 255}) = 0;
     virtual void endFrame() = 0;
     virtual void execute(const Recording& recording, const DrawPass& pass) = 0;
     virtual void resize(i32 w, i32 h) = 0;

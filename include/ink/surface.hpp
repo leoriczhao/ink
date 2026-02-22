@@ -37,7 +37,7 @@ public:
     Canvas* canvas() const { return canvas_.get(); }
 
     void resize(i32 w, i32 h);
-    void beginFrame();
+    void beginFrame(Color clearColor = {0, 0, 0, 255});
     void endFrame();
     void flush();
 

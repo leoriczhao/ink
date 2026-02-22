@@ -14,7 +14,7 @@ bool GpuContext::valid() const {
     return impl_ && impl_->valid();
 }
 
-void GpuContext::beginFrame() { if (impl_) impl_->beginFrame(); }
+void GpuContext::beginFrame(Color clearColor) { if (impl_) impl_->beginFrame(clearColor); }
 void GpuContext::endFrame() { if (impl_) impl_->endFrame(); }
 void GpuContext::execute(const Recording& r, const DrawPass& p) { if (impl_) impl_->execute(r, p); }
 void GpuContext::resize(i32 w, i32 h) { if (impl_) impl_->resize(w, h); }
