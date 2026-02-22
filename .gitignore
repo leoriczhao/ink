@@ -13,5 +13,7 @@ compile_commands.json
 
 # IDE/Tools
 .junie/
-.opencode/
+.opencode/*
+!.opencode/skills/
+!.opencode/skills/**
 docs/_build/

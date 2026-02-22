@@ -1,0 +1,83 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cpu, gl]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+          if [ "${{ matrix.variant }}" = "gl" ]; then
+            sudo apt-get install -y libgl1-mesa-dev libglew-dev
+          fi
+
+      - name: Configure (Release)
+        run: |
+          if [ "${{ matrix.variant }}" = "gl" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=ON
+          else
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_ENABLE_GL=OFF
+          fi
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: |
+          if [ "${{ matrix.variant }}" = "gl" ]; then
+            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=ON
+          else
+            cmake -B build-test -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
+          fi
+          cmake --build build-test -j$(nproc)
+          ctest --test-dir build-test --output-on-failure
+
+      - name: Package nightly binary
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          PKG=ink-nightly-${DATE}-${SHORT_SHA}-linux-x64-${{ matrix.variant }}
+          mkdir -p ${PKG}/{lib,include}
+          cp build/libink.a ${PKG}/lib/
+          cp -r include/ink ${PKG}/include/
+          tar czf ${PKG}.tar.gz ${PKG}/
+
+      - name: Upload nightly binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.variant }}
+          path: ink-nightly-*-linux-x64-${{ matrix.variant }}.tar.gz
+
+  source-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package nightly source
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          VERSION=nightly-${DATE}-${SHORT_SHA}
+          git archive --format=tar.gz --prefix=ink-${VERSION}/ -o ink-${VERSION}-src.tar.gz ${GITHUB_SHA}
+
+      - name: Upload nightly source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-src
+          path: ink-nightly-*-src.tar.gz
