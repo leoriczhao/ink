@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
     std::snprintf(title, sizeof(title), "ink - GPU Rendering (%s)", backendName());
 
     Uint32 windowFlags = SDL_WINDOW_SHOWN;
-#if INK_HAS_GL
+#if !INK_HAS_METAL && INK_HAS_GL
     windowFlags |= SDL_WINDOW_OPENGL;
 #endif
 
@@ -156,7 +156,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+#if !INK_HAS_METAL && INK_HAS_GL
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+#else
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+#endif
     if (!renderer) {
         std::printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
