@@ -1,90 +1,85 @@
 ---
 name: ink-dev
-description: ink project development workflow - branching, PR, CI/CD, and release conventions
+description: Use when contributing code to ink and needing repository-specific branching, local validation, PR, and CI conventions.
 ---
 
-## ink Development Workflow
+# ink-dev
 
-This skill defines the development process for the ink 2D rendering library.
+## Overview
 
-### Branch Strategy
+Use this skill to follow the standard contributor workflow for the ink 2D rendering library.
 
-- `master` is the protected main branch. Never push directly.
-- Feature branches: `feat/<short-description>` (e.g. `feat/add-path-ops`)
-- Bug fix branches: `fix/<short-description>` (e.g. `fix/clip-rect-overflow`)
-- Refactor branches: `refactor/<short-description>`
+**Related:** Use `ink-release` for nightly/stable release policy, gates, and hotfix handling.
 
-### Development Cycle
+This repository uses a PR-first flow even for solo development: work on branch, open PR, merge to `master`.
 
-1. **Create branch** from latest master:
+## When to Use
+
+Use when:
+- starting a feature, bugfix, or refactor in this repo
+- preparing a pull request to `master`
+- checking what local commands to run before push
+- preparing code for release readiness checks
+
+Do not use when you need language-level coding patterns unrelated to repository workflow.
+
+## Branch Strategy
+
+- Treat `master` as protected; use PRs instead of direct pushes.
+- Feature branch: `feat/<short-description>`
+- Bugfix branch: `fix/<short-description>`
+- Refactor branch: `refactor/<short-description>`
+- Do not commit feature work directly on `master`.
+
+## Development Cycle
+
+1. Create branch from latest `master`:
+   ```bash
+   git switch master
+   git pull
+   git switch -c feat/<name>
    ```
-   git checkout master && git pull
-   git checkout -b feat/<name>
-   ```
-
-2. **Develop** — make changes, commit often with clear messages:
-   ```
-   <type>: <concise description>
-   ```
-   Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-
-3. **Update docs (README) before pushing** if behavior/API/build/release process changed:
-   - Update `README.md` with any new API usage, build flags, workflow, or examples
-   - Keep README examples aligned with current code paths
-
-4. **Build and test locally** before pushing:
-   ```
+2. Commit with conventional prefixes:
+   - `<type>: <concise description>`
+   - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+3. Update `README.md` when API/behavior/build/release workflow changed.
+4. Run local validation before push:
+   ```bash
    cmake -B build -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
    cmake --build build -j$(nproc)
    ctest --test-dir build --output-on-failure
    ```
-
-5. **Push and create PR**:
-   ```
+5. Push branch and open PR to `master`:
+   ```bash
    git push -u origin feat/<name>
    gh pr create --base master --title "<type>: <description>" --body "## Summary\n- ..."
    ```
 
-6. **CI must pass** — the `ci` workflow runs lint + build + test on every PR.
-   PR cannot merge until the `ci` check passes (branch protection).
+6. Wait for CI checks before merge.
+7. Merge via GitHub (squash merge is the default convention).
 
-7. **Merge** — squash merge into master via GitHub.
+## Quick Reference
 
-### Release Process
+| Area | Current convention |
+|------|--------------------|
+| Target branch | `master` |
+| CI trigger | PR to `master`, push to `master` |
+| CI checks | `Format`, `Build & Test` (gcc/clang x Debug/Release), `clang-tidy`, `Sanitizers` |
+| Nightly trigger | schedule/manual in `nightly.yml` on default branch |
+| Stable release trigger | push tag `v*` |
+| Release outputs | CPU tarball, GL tarball, source tarball, GitHub Release notes |
 
-1. Update version in `CMakeLists.txt` (`project(ink VERSION x.y.z)`)
-2. Merge the version bump PR
-3. Tag and push:
-   ```
-   git tag v0.x.x
-   git push origin v0.x.x
-   ```
-4. The `release` workflow automatically:
-   - Builds Release mode
-   - Runs tests
-   - Packages `libink.a` + headers
-   - Creates a GitHub Release with auto-generated notes
+## Code Conventions
 
-### CI/CD Workflows
+- C++17 with strict warnings (`-Wall -Wextra -Wpedantic`).
+- Public headers live in `include/ink/`; implementation in `src/`.
+- GPU backend sources live in `src/gpu/<api>/`.
+- New features include tests in `tests/` (typically `test_<component>.cpp`).
+- Tests use Google Test (`TEST`, `EXPECT_EQ`, and related assertions).
 
-| Workflow | Trigger | What it does |
-|----------|---------|-------------|
-| `ci.yml` | PR to master, push to master | lint (clang-tidy) + build + test |
-| `release.yml` | push tag `v*` | build Release + test + package + GitHub Release |
+## Common Mistakes
 
-### Code Conventions
-
-- C++17, compile with `-Wall -Wextra -Wpedantic`
-- Headers in `include/ink/`, sources in `src/`
-- GPU backend sources in `src/gpu/<api>/`
-- All new features must have tests in `tests/`
-- Test file naming: `test_<component>.cpp`
-- Use Google Test (`TEST`, `EXPECT_EQ`, etc.)
-
-### When to use this skill
-
-Use this skill when:
-- Starting work on a new feature or bug fix
-- Creating a PR
-- Preparing a release
-- Unsure about the project's branching or CI conventions
+- Skipping local `ctest` and relying only on CI feedback.
+- Forgetting README updates when public behavior or usage changes.
+- Using vague commit titles instead of typed prefixes.
+- Pushing release tags before the version bump PR is merged.
