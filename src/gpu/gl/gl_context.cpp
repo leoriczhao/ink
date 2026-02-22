@@ -164,9 +164,10 @@ public:
     // GpuImpl interface
     bool valid() const override { return framebuffer_.fbo != 0; }
 
-    void beginFrame() override {
+    void beginFrame(Color clearColor = {0, 0, 0, 255}) override {
         framebuffer_.bind();
-        glClearColor(0, 0, 0, 1);
+        glClearColor(clearColor.r / 255.0f, clearColor.g / 255.0f,
+                     clearColor.b / 255.0f, clearColor.a / 255.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

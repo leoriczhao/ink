@@ -122,16 +122,12 @@ int main(int argc, char* argv[]) {
 
         t += 0.02f;
 
-        auto* pm = waveLayer->peekPixels();
-        if (pm) pm->clear({0, 0, 0, 0});
-        waveLayer->beginFrame();
+        waveLayer->beginFrame({0, 0, 0, 0});
         drawWaveform(waveLayer->canvas(), W, H, t);
         waveLayer->endFrame();
         waveLayer->flush();
 
-        pm = uiLayer->peekPixels();
-        if (pm) pm->clear({0, 0, 0, 0});
-        uiLayer->beginFrame();
+        uiLayer->beginFrame({0, 0, 0, 0});
         drawUI(uiLayer->canvas(), W, H, t);
         uiLayer->endFrame();
         uiLayer->flush();
@@ -148,7 +144,7 @@ int main(int argc, char* argv[]) {
         finalSurface->endFrame();
         finalSurface->flush();
 
-        pm = finalSurface->peekPixels();
+        auto* pm = finalSurface->peekPixels();
         if (pm) {
             SDL_UpdateTexture(texture, nullptr, pm->addr(), pm->info().stride);
             SDL_RenderClear(renderer);

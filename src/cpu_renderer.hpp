@@ -18,8 +18,8 @@ public:
     void setGlyphCache(GlyphCache* cache) override { glyphCache_ = cache; }
 
     // Renderer interface
-    void beginFrame() override {
-        if (target_ && target_->valid()) target_->clear({0, 0, 0, 255});
+    void beginFrame(Color clearColor = {0, 0, 0, 255}) override {
+        if (target_ && target_->valid()) target_->clear(clearColor);
         hasClip_ = false;
         clipRect_ = {};
     }

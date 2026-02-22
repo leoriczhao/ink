@@ -28,8 +28,6 @@
 #include <ink/gpu/metal/metal_context.hpp>
 #elif INK_HAS_GL
 #include <ink/gpu/gl/gl_context.hpp>
-#include <EGL/egl.h>
-#include <GL/glew.h>
 #endif
 
 static void drawScene(ink::Canvas* canvas, int W, int H, float t) {
@@ -96,50 +94,30 @@ static const char* backendName() { return "Metal"; }
 
 #elif INK_HAS_GL
 
-static EGLDisplay g_eglDisplay = EGL_NO_DISPLAY;
-static EGLSurface g_eglSurf = EGL_NO_SURFACE;
-static EGLContext  g_eglCtx = EGL_NO_CONTEXT;
+static SDL_GLContext g_glContext = nullptr;
 
-static std::shared_ptr<ink::GpuContext> createGpuContext() {
-    g_eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (g_eglDisplay == EGL_NO_DISPLAY) {
-        std::printf("EGL display not available\n");
+static std::shared_ptr<ink::GpuContext> createGpuContext(SDL_Window* window) {
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+
+    g_glContext = SDL_GL_CreateContext(window);
+    if (!g_glContext) {
+        std::printf("SDL_GL_CreateContext failed: %s\n", SDL_GetError());
         return nullptr;
     }
 
-    eglInitialize(g_eglDisplay, nullptr, nullptr);
-
-    EGLint configAttribs[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-        EGL_NONE
-    };
-    EGLConfig config;
-    EGLint numConfigs;
-    eglChooseConfig(g_eglDisplay, configAttribs, &config, 1, &numConfigs);
-
-    EGLint pbufAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
-    g_eglSurf = eglCreatePbufferSurface(g_eglDisplay, config, pbufAttribs);
-
-    eglBindAPI(EGL_OPENGL_API);
-    g_eglCtx = eglCreateContext(g_eglDisplay, config, EGL_NO_CONTEXT, nullptr);
-    eglMakeCurrent(g_eglDisplay, g_eglSurf, g_eglSurf, g_eglCtx);
-
-    auto ctx = ink::GpuContexts::MakeGL();
-    if (!ctx) {
+    auto gpuCtx = ink::GpuContexts::MakeGL();
+    if (!gpuCtx) {
         std::printf("Failed to create GL GpuContext\n");
     }
-    return ctx;
+    return gpuCtx;
 }
 
 static void destroyGpuBackend() {
-    if (g_eglDisplay != EGL_NO_DISPLAY) {
-        eglMakeCurrent(g_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (g_eglCtx != EGL_NO_CONTEXT) eglDestroyContext(g_eglDisplay, g_eglCtx);
-        if (g_eglSurf != EGL_NO_SURFACE) eglDestroySurface(g_eglDisplay, g_eglSurf);
-        eglTerminate(g_eglDisplay);
+    if (g_glContext) {
+        SDL_GL_DeleteContext(g_glContext);
+        g_glContext = nullptr;
     }
 }
 
@@ -161,11 +139,16 @@ int main(int argc, char* argv[]) {
     char title[128];
     std::snprintf(title, sizeof(title), "ink - GPU Rendering (%s)", backendName());
 
+    Uint32 windowFlags = SDL_WINDOW_SHOWN;
+#if !INK_HAS_METAL && INK_HAS_GL
+    windowFlags |= SDL_WINDOW_OPENGL;
+#endif
+
     SDL_Window* window = SDL_CreateWindow(
         title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         W, H,
-        SDL_WINDOW_SHOWN
+        windowFlags
     );
     if (!window) {
         std::printf("SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -173,7 +156,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+#if !INK_HAS_METAL && INK_HAS_GL
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+#else
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+#endif
     if (!renderer) {
         std::printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
@@ -189,7 +176,11 @@ int main(int argc, char* argv[]) {
     );
 
     // ---- Create GPU context (backend-specific) ----
+#if INK_HAS_METAL
     auto gpuContext = createGpuContext();
+#elif INK_HAS_GL
+    auto gpuContext = createGpuContext(window);
+#endif
     if (!gpuContext) {
         SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
