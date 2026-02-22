@@ -1,0 +1,12 @@
+PROJECT_NAME           = "ink"
+PROJECT_BRIEF          = "A lightweight 2D graphics library"
+OUTPUT_DIRECTORY       = docs/_build/doxygen
+INPUT                  = include src
+RECURSIVE              = YES
+GENERATE_XML           = YES
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+XML_OUTPUT             = xml
+FILE_PATTERNS          = *.h *.hpp *.cpp
+EXTRACT_ALL            = YES
+QUIET                  = YES

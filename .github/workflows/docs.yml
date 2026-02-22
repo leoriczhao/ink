@@ -14,7 +14,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq doxygen graphviz python3-pip
-          pip3 install --break-system-packages sphinx breathe sphinx-rtd-theme
+          pip3 install sphinx breathe sphinx-rtd-theme
 
       - name: Build docs
         run: |
@@ -24,4 +24,5 @@ jobs:
 
       - name: Deploy
         run: |
-          rsync -av --delete docs/_build/sphinx/ /var/www/ink-docs/
+          sudo mkdir -p /var/www/ink-docs
+          sudo rsync -av --delete docs/_build/sphinx/ /var/www/ink-docs/
