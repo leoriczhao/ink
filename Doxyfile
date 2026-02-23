@@ -1,7 +1,7 @@
 # Doxyfile for ink library
 
 PROJECT_NAME           = "ink"
-PROJECT_NUMBER         = "0.1.0"
+PROJECT_NUMBER         = "0.1.1"
 PROJECT_BRIEF          = "A lightweight 2D rendering library with pluggable backends"
 
 OUTPUT_DIRECTORY       = docs/_build/doxygen
