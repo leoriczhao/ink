@@ -4,15 +4,15 @@
 /// @brief Library version information.
 
 #define INK_VERSION_MAJOR 0
-#define INK_VERSION_MINOR 2
+#define INK_VERSION_MINOR 1
 #define INK_VERSION_PATCH 0
 
 namespace ink {
 
-/// @brief Return the library version string (e.g. "0.2.0").
+/// @brief Return the library version string (e.g. "0.1.0").
 /// @return Null-terminated version string in "major.minor.patch" format.
 inline const char* version() {
-    return "0.2.0";
+    return "0.1.0";
 }
 
 /// @brief Return the major version number.

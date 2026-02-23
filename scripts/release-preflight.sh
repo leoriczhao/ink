@@ -60,6 +60,30 @@ if ! grep -q "## \[${VERSION}\]" CHANGELOG.md; then
   exit 1
 fi
 
+IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "$VERSION"
+
+if ! grep -q "PROJECT_NUMBER.*\"${VERSION}\"" Doxyfile; then
+  printf 'FAIL: Doxyfile PROJECT_NUMBER does not match %s.\n' "$VERSION"
+  exit 1
+fi
+
+if ! grep -q "#define INK_VERSION_MAJOR ${V_MAJOR}" include/ink/version.hpp || \
+   ! grep -q "#define INK_VERSION_MINOR ${V_MINOR}" include/ink/version.hpp || \
+   ! grep -q "#define INK_VERSION_PATCH ${V_PATCH}" include/ink/version.hpp; then
+  printf 'FAIL: include/ink/version.hpp macros do not match %s.\n' "$VERSION"
+  exit 1
+fi
+
+if ! grep -q "return \"${VERSION}\"" include/ink/version.hpp; then
+  printf 'FAIL: include/ink/version.hpp version() string does not match %s.\n' "$VERSION"
+  exit 1
+fi
+
+if ! grep -q "release = '${VERSION}'" docs/conf.py; then
+  printf 'FAIL: docs/conf.py release does not match %s.\n' "$VERSION"
+  exit 1
+fi
+
 printf 'Running smoke build/test...\n'
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DINK_BUILD_TESTS=ON -DINK_ENABLE_GL=OFF
 cmake --build build -j"$(nproc)"
