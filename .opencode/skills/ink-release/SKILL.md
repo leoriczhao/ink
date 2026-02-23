@@ -72,7 +72,11 @@ ctest --test-dir build --output-on-failure
 
 ## Stable Release Steps
 
-1. Update version and changelog in a normal PR.
+1. Update version using the bump script and update changelog in a normal PR:
+   ```bash
+   ./scripts/bump-version.sh X.Y.Z
+   ```
+   This updates CMakeLists.txt, include/ink/version.hpp, Doxyfile, and docs/conf.py in one command.
 2. Merge to `master` after CI passes.
 3. Create and push tag:
 
