@@ -18,11 +18,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install clang-format
+        timeout-minutes: 5
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do sudo apt-get update -y && break || sleep 10; done
-          sudo apt-get install -y --no-install-recommends clang-format
+          for i in 1 2 3; do sudo apt-get install -y --no-install-recommends clang-format && break || sleep 10; done
 
       - name: Check formatting (changed files only)
         run: |
@@ -52,11 +53,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 5
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do sudo apt-get update -y && break || sleep 10; done
-          sudo apt-get install -y --no-install-recommends cmake ninja-build gcc g++ clang libsdl2-dev
+          for i in 1 2 3; do sudo apt-get install -y --no-install-recommends cmake ninja-build gcc g++ clang libsdl2-dev && break || sleep 10; done
 
       - name: Configure
         env:
@@ -83,11 +85,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 5
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do sudo apt-get update -y && break || sleep 10; done
-          sudo apt-get install -y --no-install-recommends cmake ninja-build clang clang-tidy libsdl2-dev
+          for i in 1 2 3; do sudo apt-get install -y --no-install-recommends cmake ninja-build clang clang-tidy libsdl2-dev && break || sleep 10; done
 
       - name: Configure
         env:
@@ -114,11 +117,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 5
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           for i in 1 2 3; do sudo apt-get update -y && break || sleep 10; done
-          sudo apt-get install -y --no-install-recommends cmake ninja-build clang libsdl2-dev
+          for i in 1 2 3; do sudo apt-get install -y --no-install-recommends cmake ninja-build clang libsdl2-dev && break || sleep 10; done
 
       - name: Configure
         env:
