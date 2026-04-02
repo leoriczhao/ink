@@ -1,43 +1,40 @@
 # ink
 
-A lightweight 2D rendering library with pluggable backends.
+A lightweight 2D rendering library with pluggable renderers.
 
-ink provides a simple Canvas API for drawing 2D primitives (rectangles, lines, polylines, text, images) with a unified record-then-execute architecture. All drawing commands are first recorded, then sorted for optimal execution, and finally dispatched to a backend for rendering.
+ink provides a simple Canvas API for drawing 2D primitives (rectangles, lines, polylines, text, images) with a unified record-then-execute architecture. All drawing commands are first recorded, then sorted for optimal execution, and finally dispatched to a renderer for rendering.
 
 ## Architecture
 
 ```
-Canvas -> Device -> Recorder -> Recording -> DrawPass -> Backend
-                                                           |
-                                                     +-----+-----+
-                                                     |           |
-                                                 CpuBackend  GLBackend
-                                                 (software)  (OpenGL 3.3+)
-                                                                |
-                                                            GpuContext
-                                                       (backend-agnostic)
-                                                                |
-                                                            GpuImpl
-                                                       (internal virtual)
-                                                                |
-                                                          GLGpuImpl
-                                                     (GL texture cache)
+Canvas -> Device -> Recording -> DrawPass -> Renderer
+                                                |
+                                          +-----+-----+
+                                          |           |
+                                     CpuRenderer  GpuContext
+                                     (software)   (GPU rendering)
+                                                      |
+                                                +-----+-----+
+                                                |           |
+                                             GLImpl    MetalImpl
+                                           (OpenGL)    (Metal)
 ```
 
 - **Canvas** - User-facing drawing API with save/restore state stack and clip management
 - **Device** - Converts Canvas commands into compact recorded operations
 - **Recording** - Immutable command buffer with arena-allocated variable data
 - **DrawPass** - Sorts operations by clip group, type, and color to minimize state changes
-- **Backend** - Executes recorded operations on a specific rendering target
-- **GpuContext** - Backend-agnostic shared GPU resource context, internally dispatches to backend-specific GpuImpl
+- **Renderer** - Executes recorded operations on a specific rendering target
+- **GpuContext** - GPU renderer that delegates to backend-specific implementations (GL, Metal)
 
-### Backends
+### Renderers
 
-| Backend | Status | Description |
-|---------|--------|-------------|
-| CpuBackend | Working | Software rasterization to a Pixmap buffer |
-| GLBackend | Working | OpenGL 3.3+ rendering via FBO + GLSL shaders, vertex batching, scissor clipping, GPU snapshots |
-| VulkanBackend | Planned | Vulkan rendering |
+| Renderer | Status | Description |
+|----------|--------|-------------|
+| CpuRenderer | Working | Software rasterization to a Pixmap buffer |
+| GL (via GpuContext) | Working | OpenGL 3.3+ rendering via FBO + GLSL shaders, vertex batching, scissor clipping, GPU snapshots |
+| Metal (via GpuContext) | Working | Metal rendering on macOS/iOS |
+| Vulkan (via GpuContext) | Planned | Vulkan rendering (stub only) |
 
 ### Surface compositing
 
@@ -67,8 +64,9 @@ cmake --build build
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `INK_ENABLE_GL` | `OFF` | Enable OpenGL backend |
-| `INK_ENABLE_VULKAN` | `OFF` | Enable Vulkan backend |
+| `INK_ENABLE_GL` | `OFF` | Enable OpenGL renderer |
+| `INK_ENABLE_METAL` | `OFF` | Enable Metal renderer (Apple only) |
+| `INK_ENABLE_VULKAN` | `OFF` | Enable Vulkan renderer (stub, not yet implemented) |
 | `INK_BUILD_TESTS` | `OFF` | Build test suite |
 | `INK_BUILD_EXAMPLES` | `OFF` | Build examples |
 | `BUILD_SHARED_LIBS` | `OFF` | Build as shared library |
@@ -107,7 +105,8 @@ Add `include/` to your include path and link against the built library.
 
 - C++17 compiler (GCC, Clang, or MSVC)
 - CMake 3.16+
-- **Optional:** OpenGL + GLEW (for GL backend)
+- **Optional:** OpenGL + GLEW (for GL renderer)
+- **Optional:** Metal framework (for Metal renderer, Apple platforms only)
 - **Test-only:** Google Test (fetched automatically via CMake FetchContent)
 
 ## Usage
@@ -220,30 +219,35 @@ ink/
 │   ├── recording.hpp        # Command recording and compact ops
 │   ├── draw_op_visitor.hpp  # Visitor interface for draw operations
 │   ├── draw_pass.hpp        # Command sorting for optimal execution
-│   ├── backend.hpp          # Abstract rendering backend
-│   ├── cpu_backend.hpp      # CPU software rasterizer
-│   ├── pipeline.hpp         # GPU pipeline stage interface
+│   ├── renderer.hpp         # Abstract rendering interface
 │   ├── surface.hpp          # Top-level rendering target
 │   ├── glyph_cache.hpp      # Font rasterization
 │   └── gpu/
-│       ├── gpu_context.hpp  # Backend-agnostic shared GPU resource context
-│       └── gl/
-│           ├── gl_context.hpp   # GpuContexts::MakeGL() factory
-│           └── gl_backend.hpp   # OpenGL 3.3+ backend
+│       ├── gpu_context.hpp      # GPU renderer (delegates to backend impl)
+│       ├── gl/
+│       │   └── gl_context.hpp   # GpuContexts::MakeGL() factory
+│       ├── metal/
+│       │   └── metal_context.hpp # GpuContexts::MakeMetal() factory
+│       └── vk/
+│           └── vk_context.hpp   # GpuContexts::MakeVulkan() factory (stub)
 ├── src/
 │   ├── *.cpp                # Core implementations
+│   ├── cpu_renderer.hpp     # CPU software rasterizer (internal)
+│   ├── gpu_impl.hpp         # Internal abstract base for GPU impls
 │   └── gpu/
-│       ├── gpu_context.cpp  # GpuContext shell (delegates to GpuImpl)
-│       ├── gpu_impl.hpp     # Internal abstract base for GPU backends
-│       └── gl/
-│           ├── gl_context.cpp   # MakeGL() implementation
-│           ├── gl_backend.cpp
-│           └── gl_gpu_impl.cpp
+│       ├── gpu_context.cpp      # GpuContext (delegates to GpuImpl)
+│       ├── gl/
+│       │   └── gl_context.cpp   # OpenGL 3.3+ implementation
+│       ├── metal/
+│       │   └── metal_context.mm # Metal implementation
+│       └── vk/
+│           └── vk_context.cpp   # Vulkan stub
 ├── tests/
-│   └── *.cpp                # Google Test suite (9 test files)
+│   └── *.cpp                # Google Test suite (8 test files)
 ├── examples/
-│   ├── example_basic.cpp    # CPU + GPU drawing demo
-│   └── example_composite.cpp # Multi-layer compositing demo
+│   ├── example_basic.cpp       # CPU + GPU drawing demo
+│   ├── example_composite.cpp   # Multi-layer compositing demo
+│   └── example_gpu.cpp         # GPU-specific rendering demo
 └── third_party/
     └── stb_truetype.h       # Font rasterization
 ```
@@ -266,7 +270,7 @@ sphinx-build docs docs/_build/sphinx      # Full site     → docs/_build/sphinx
 
 ### Documentation contents
 
-- **User Guide** — Quick start, backend selection (CPU / GL / Metal), multi-layer compositing, build instructions.
+- **User Guide** — Quick start, renderer selection (CPU / GL / Metal), multi-layer compositing, build instructions.
 - **API Reference** — Auto-generated from Doxygen comments in `include/ink/*.hpp`.
 
 ## License
