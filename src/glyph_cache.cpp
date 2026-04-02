@@ -153,16 +153,20 @@ void GlyphCache::drawText(u32* pixels, i32 stride, i32 bufH,
                     u8 alpha = atlas_[(srcY + row) * atlasW_ + srcX + col];
                     if (alpha == 0) continue;
                     
+                    // Note: pixel layout assumed BGRA (byte 0=B, 1=G, 2=R, 3=A)
                     u32& dst = pixels[dy * stride + dx];
                     u8 dstR = (dst >> 16) & 0xFF;
                     u8 dstG = (dst >> 8) & 0xFF;
                     u8 dstB = dst & 0xFF;
-                    
-                    u8 outR = u8((c.r * alpha + dstR * (255 - alpha)) / 255);
-                    u8 outG = u8((c.g * alpha + dstG * (255 - alpha)) / 255);
-                    u8 outB = u8((c.b * alpha + dstB * (255 - alpha)) / 255);
-                    
-                    dst = 0xFF000000 | (outR << 16) | (outG << 8) | outB;
+                    u8 dstA = (dst >> 24) & 0xFF;
+
+                    u32 invAlpha = 255 - alpha;
+                    u8 outR = u8((c.r * alpha + dstR * invAlpha) / 255);
+                    u8 outG = u8((c.g * alpha + dstG * invAlpha) / 255);
+                    u8 outB = u8((c.b * alpha + dstB * invAlpha) / 255);
+                    u8 outA = u8((alpha * 255 + dstA * invAlpha) / 255);
+
+                    dst = (u32(outA) << 24) | (outR << 16) | (outG << 8) | outB;
                 }
             }
         }

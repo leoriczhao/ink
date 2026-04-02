@@ -12,9 +12,10 @@ DrawOpArena::DrawOpArena(size_t initialCapacity) {
 }
 
 u32 DrawOpArena::allocate(size_t bytes) {
-    u32 offset = static_cast<u32>(data_.size());
-    data_.resize(data_.size() + bytes);
-    return offset;
+    size_t current = data_.size();
+    size_t padding = (4 - (current & 3)) & 3;
+    data_.resize(current + padding + bytes);
+    return static_cast<u32>(current + padding);
 }
 
 u32 DrawOpArena::storeString(std::string_view str) {

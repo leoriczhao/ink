@@ -22,7 +22,7 @@ struct PixmapInfo {
     i32 width = 0;   ///< Width in pixels.
     i32 height = 0;  ///< Height in pixels.
     i32 stride = 0;  ///< Bytes per row.
-    PixelFormat format = PixelFormat::RGBA8888; ///< Pixel format.
+    PixelFormat format = PixelFormat::BGRA8888; ///< Pixel format (BGRA is native on most platforms).
 
     /// @brief Get bytes per pixel (always 4 for current formats).
     /// @return Bytes per pixel.

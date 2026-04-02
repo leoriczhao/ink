@@ -53,10 +53,11 @@ void Pixmap::clear(Color c) {
         pixel = (u32(c.a) << 24) | (u32(c.b) << 16) | (u32(c.g) << 8) | u32(c.r);
     }
 
-    u32* p = addr32();
-    i32 count = info_.width * info_.height;
-    for (i32 i = 0; i < count; ++i) {
-        p[i] = pixel;
+    for (i32 y = 0; y < info_.height; ++y) {
+        u32* row = static_cast<u32*>(rowAddr(y));
+        for (i32 x = 0; x < info_.width; ++x) {
+            row[x] = pixel;
+        }
     }
 }
 

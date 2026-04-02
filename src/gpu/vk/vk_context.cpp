@@ -5,7 +5,7 @@
 
 #include "ink/gpu/vk/vk_context.hpp"
 #include "ink/gpu/gpu_context.hpp"
-#include "gpu/gpu_impl.hpp"
+#include "gpu_impl.hpp"
 
 namespace ink {
 
