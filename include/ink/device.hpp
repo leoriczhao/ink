@@ -19,7 +19,7 @@ class Image;
  *
  * Device converts Canvas high-level commands into low-level Recording ops.
  * All Surfaces use the same Device — it always records, never draws directly.
- * The actual rendering is done by a Backend that consumes the Recording.
+ * The actual rendering is done by a Renderer that consumes the Recording.
  */
 class Device {
 public:

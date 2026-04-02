@@ -53,9 +53,6 @@
 #include "ink/gpu/gl/gl_context.hpp"
 #endif
 
-// Pipeline (GPU pipeline stages)
-#include "ink/pipeline.hpp"
-
 // Surface (top-level rendering target)
 #include "ink/surface.hpp"
 
