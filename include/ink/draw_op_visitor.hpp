@@ -6,8 +6,6 @@
  */
 
 #include "ink/types.hpp"
-#include <cstdint>
-#include <memory>
 
 namespace ink {
 
