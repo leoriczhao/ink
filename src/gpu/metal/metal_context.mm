@@ -251,11 +251,17 @@ public:
     }
 
     // DrawOpVisitor interface
-    void visitFillRect(Rect r, Color c, BlendMode, u8) override {
+    void applyOpacity(Color& c, u8 opacity) {
+        c.a = u8(c.a * opacity / 255);
+    }
+
+    void visitFillRect(Rect r, Color c, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, c);
     }
 
-    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8) override {
+    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         float w = width > 0 ? width : 1.0f;
         pushQuad(r.x, r.y, r.x + r.w, r.y + w, c);
         pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, c);
@@ -263,11 +269,13 @@ public:
         pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, c);
     }
 
-    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8) override {
+    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushLine(p1.x, p1.y, p2.x, p2.y, c, width > 0 ? width : 1.0f);
     }
 
-    void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode, u8) override {
+    void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         float w = width > 0 ? width : 1.0f;
         for (i32 i = 0; i + 1 < count; ++i)
             pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, c, w);
@@ -348,19 +356,23 @@ public:
         flushColorBatch();
     }
 
-    void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode, u8) override {
+    void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushCircleFan(cx, cy, radius, c, 48);
     }
 
-    void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width, BlendMode, u8) override {
+    void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushCircleRing(cx, cy, radius, c, width > 0 ? width : 1.0f, 48);
     }
 
-    void visitFillRoundRect(Rect r, f32 rx, f32 ry, Color c, BlendMode, u8) override {
+    void visitFillRoundRect(Rect r, f32 rx, f32 ry, Color c, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushRoundRectFill(r, rx, ry, c, 16);
     }
 
-    void visitStrokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width, BlendMode, u8) override {
+    void visitStrokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width, BlendMode, u8 opacity) override {
+        applyOpacity(c, opacity);
         pushRoundRectStroke(r, rx, ry, c, width > 0 ? width : 1.0f, 16);
     }
 
