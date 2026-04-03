@@ -169,6 +169,7 @@ if(INK_BUILD_TESTS)
     set(INK_TEST_SOURCES
         tests/test_types.cpp
         tests/test_matrix.cpp
+        tests/test_transform.cpp
         tests/test_pixmap.cpp
         tests/test_recording.cpp
         tests/test_draw_pass.cpp

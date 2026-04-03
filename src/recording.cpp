@@ -40,6 +40,16 @@ const Point* DrawOpArena::getPoints(u32 offset) const {
     return reinterpret_cast<const Point*>(data_.data() + offset);
 }
 
+u32 DrawOpArena::storeMatrix(const Matrix& m) {
+    u32 offset = allocate(sizeof(Matrix));
+    std::memcpy(data_.data() + offset, &m, sizeof(Matrix));
+    return offset;
+}
+
+const Matrix* DrawOpArena::getMatrix(u32 offset) const {
+    return reinterpret_cast<const Matrix*>(data_.data() + offset);
+}
+
 void DrawOpArena::reset() {
     data_.clear();
 }
@@ -91,6 +101,12 @@ void Recording::dispatchOp(const CompactDrawOp& op, DrawOpVisitor& visitor) cons
             break;
         case DrawOp::Type::ClearClip:
             visitor.visitClearClip();
+            break;
+        case DrawOp::Type::SetTransform:
+            visitor.visitSetTransform(*arena_.getMatrix(op.data.transform.matrixOffset));
+            break;
+        case DrawOp::Type::ClearTransform:
+            visitor.visitClearTransform();
             break;
     }
 }
@@ -182,6 +198,19 @@ void Recorder::setClip(Rect r) {
 void Recorder::clearClip() {
     CompactDrawOp op{};
     op.type = DrawOp::Type::ClearClip;
+    ops_.push_back(op);
+}
+
+void Recorder::setTransform(const Matrix& m) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::SetTransform;
+    op.data.transform.matrixOffset = arena_.storeMatrix(m);
+    ops_.push_back(op);
+}
+
+void Recorder::clearTransform() {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::ClearTransform;
     ops_.push_back(op);
 }
 

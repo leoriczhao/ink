@@ -37,6 +37,20 @@ DrawPass DrawPass::create(const Recording& recording) {
             sequence = 0;
             continue;
         }
+        if (op.type == DrawOp::Type::SetTransform) {
+            ++currentClipId;
+            sequence = 0;
+            keys.push_back(SortKey::make(currentClipId, DrawOp::Type::FillRect, {}, 0, i));
+            sequence = 1;
+            continue;
+        }
+        if (op.type == DrawOp::Type::ClearTransform) {
+            keys.push_back(SortKey::make(currentClipId,
+                static_cast<DrawOp::Type>(0xFF), {0xFF,0xFF,0xFF,0xFF}, 0xFE, i));
+            ++currentClipId;
+            sequence = 0;
+            continue;
+        }
 
         keys.push_back(SortKey::make(currentClipId, op.type, op.color, sequence++, i));
         if (sequence >= 0xFE) sequence = 1;  // Reserve 0 for SetClip, 0xFE for ClearClip

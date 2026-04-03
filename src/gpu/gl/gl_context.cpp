@@ -258,6 +258,14 @@ public:
         glDisable(GL_SCISSOR_TEST);
     }
 
+    void visitSetTransform(const Matrix&) override {
+        flushColorBatch();
+    }
+
+    void visitClearTransform() override {
+        flushColorBatch();
+    }
+
     std::shared_ptr<Image> makeSnapshot() const override {
         if (framebuffer_.width <= 0 || framebuffer_.height <= 0) return nullptr;
         GLuint tex = 0;

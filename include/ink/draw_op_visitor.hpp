@@ -6,6 +6,7 @@
  */
 
 #include "ink/types.hpp"
+#include "ink/matrix.hpp"
 
 namespace ink {
 
@@ -65,6 +66,13 @@ public:
 
     /// @brief Visit a clear-clip command (removes current clip).
     virtual void visitClearClip() = 0;
+
+    /// @brief Visit a set-transform command.
+    /// @param m The transformation matrix.
+    virtual void visitSetTransform(const Matrix& m) = 0;
+
+    /// @brief Visit a clear-transform command (resets to identity).
+    virtual void visitClearTransform() = 0;
 };
 
 } // namespace ink

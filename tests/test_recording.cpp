@@ -12,7 +12,8 @@ using namespace ink;
 
 struct VisitorCall {
     enum class Kind {
-        FillRect, StrokeRect, Line, Polyline, Text, DrawImage, SetClip, ClearClip
+        FillRect, StrokeRect, Line, Polyline, Text, DrawImage, SetClip, ClearClip,
+        SetTransform, ClearTransform
     };
     Kind kind;
 };
@@ -44,6 +45,12 @@ public:
     }
     void visitClearClip() override {
         calls.push_back({VisitorCall::Kind::ClearClip});
+    }
+    void visitSetTransform(const Matrix&) override {
+        calls.push_back({VisitorCall::Kind::SetTransform});
+    }
+    void visitClearTransform() override {
+        calls.push_back({VisitorCall::Kind::ClearTransform});
     }
 };
 

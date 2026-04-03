@@ -39,6 +39,7 @@ void Canvas::restore() {
     current_ = stack_.back();
     stack_.pop_back();
     applyClip();
+    applyTransform();
 }
 
 void Canvas::clipRect(Rect r) {
@@ -59,11 +60,48 @@ void Canvas::clipRect(Rect r) {
     applyClip();
 }
 
+void Canvas::translate(f32 dx, f32 dy) {
+    current_.transform *= Matrix::Translate(dx, dy);
+    applyTransform();
+}
+
+void Canvas::rotate(f32 radians) {
+    current_.transform *= Matrix::Rotate(radians);
+    applyTransform();
+}
+
+void Canvas::scale(f32 sx, f32 sy) {
+    current_.transform *= Matrix::Scale(sx, sy);
+    applyTransform();
+}
+
+void Canvas::concat(const Matrix& m) {
+    current_.transform *= m;
+    applyTransform();
+}
+
+void Canvas::setMatrix(const Matrix& m) {
+    current_.transform = m;
+    applyTransform();
+}
+
+Matrix Canvas::getMatrix() const {
+    return current_.transform;
+}
+
 void Canvas::applyClip() {
     if (current_.hasClip) {
         device_->setClipRect(current_.clip);
     } else {
         device_->resetClip();
+    }
+}
+
+void Canvas::applyTransform() {
+    if (current_.transform.isIdentity()) {
+        device_->clearTransform();
+    } else {
+        device_->setTransform(current_.transform);
     }
 }
 

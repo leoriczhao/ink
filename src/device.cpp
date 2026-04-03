@@ -43,6 +43,14 @@ void Device::resetClip() {
     recorder_.clearClip();
 }
 
+void Device::setTransform(const Matrix& m) {
+    recorder_.setTransform(m);
+}
+
+void Device::clearTransform() {
+    recorder_.clearTransform();
+}
+
 std::unique_ptr<Recording> Device::finishRecording() {
     return std::move(recording_);
 }
