@@ -46,13 +46,13 @@ public:
     }
 
     // DrawOpVisitor interface
-    void visitFillRect(Rect r, Color c, BlendMode, u8 opacity) override {
+    void visitFillRect(Rect r, Color c, BlendMode blend, u8 opacity) override {
         c.a = u8(c.a * opacity / 255);
         Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
-        fillRectScreen(tr, c);
+        fillRectScreen(tr, c, blend);
     }
 
-    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8 opacity) override {
+    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode blend, u8 opacity) override {
         c.a = u8(c.a * opacity / 255);
         Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
         f32 w = width > 0 ? width : 1;
@@ -60,13 +60,13 @@ public:
             w *= std::abs(currentTransform_.scaleX);
         }
         i32 iw = i32(w);
-        fillRectScreen({tr.x, tr.y, tr.w, f32(iw)}, c);
-        fillRectScreen({tr.x, tr.y + tr.h - iw, tr.w, f32(iw)}, c);
-        fillRectScreen({tr.x, tr.y + iw, f32(iw), tr.h - iw * 2}, c);
-        fillRectScreen({tr.x + tr.w - iw, tr.y + iw, f32(iw), tr.h - iw * 2}, c);
+        fillRectScreen({tr.x, tr.y, tr.w, f32(iw)}, c, blend);
+        fillRectScreen({tr.x, tr.y + tr.h - iw, tr.w, f32(iw)}, c, blend);
+        fillRectScreen({tr.x, tr.y + iw, f32(iw), tr.h - iw * 2}, c, blend);
+        fillRectScreen({tr.x + tr.w - iw, tr.y + iw, f32(iw), tr.h - iw * 2}, c, blend);
     }
 
-    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8 opacity) override {
+    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode blend, u8 opacity) override {
         c.a = u8(c.a * opacity / 255);
         Point tp1 = currentTransform_.mapPoint(p1);
         Point tp2 = currentTransform_.mapPoint(p2);
@@ -81,7 +81,7 @@ public:
         while (true) {
             for (i32 oy = -w/2; oy <= w/2; ++oy) {
                 for (i32 ox = -w/2; ox <= w/2; ++ox) {
-                    blendPixel(x0 + ox, y0 + oy, c);
+                    blendPixel(x0 + ox, y0 + oy, c, blend);
                 }
             }
             if (x0 == x1 && y0 == y1) break;
@@ -92,7 +92,6 @@ public:
     }
 
     void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode blend, u8 opacity) override {
-        c.a = u8(c.a * opacity / 255);
         for (i32 i = 0; i + 1 < count; ++i) {
             visitLine(pts[i], pts[i + 1], c, width, blend, opacity);
         }
@@ -169,7 +168,7 @@ private:
                y < clipRect_.y || y >= clipRect_.y + clipRect_.h;
     }
 
-    void fillRectScreen(Rect r, Color c) {
+    void fillRectScreen(Rect r, Color c, BlendMode mode = BlendMode::SrcOver) {
         Rect clip = effectiveClip();
         i32 x0 = std::max(i32(r.x), i32(clip.x));
         i32 y0 = std::max(i32(r.y), i32(clip.y));
@@ -177,7 +176,7 @@ private:
         i32 y1 = std::min(i32(r.y + r.h), i32(clip.y + clip.h));
         for (i32 y = y0; y < y1; ++y)
             for (i32 x = x0; x < x1; ++x)
-                blendPixel(x, y, c);
+                blendPixel(x, y, c, mode);
     }
 
     Rect effectiveClip() const {
@@ -201,7 +200,34 @@ private:
         return (u32(c.a) << 24) | (u32(c.b) << 16) | (u32(c.g) << 8) | u32(c.r);
     }
 
-    void blendPixel(i32 x, i32 y, Color c) {
+    Color blendColors(Color src, Color dst, BlendMode mode) const {
+        u32 sa = src.a, da = dst.a;
+        u32 invSa = 255 - sa, invDa = 255 - da;
+        // Porter-Duff: Out = Fa*Src + Fb*Dst (alpha-premultiplied)
+        // Fa and Fb operate on premultiplied colors: src.c*src.a and dst.c*dst.a
+        u32 fa = 0, fb = 0;
+        switch (mode) {
+            case BlendMode::SrcOver: fa = 255;  fb = invSa; break;
+            case BlendMode::Src:     fa = 255;  fb = 0;     break;
+            case BlendMode::Dst:     fa = 0;    fb = 255;   break;
+            case BlendMode::SrcIn:   fa = da;   fb = 0;     break;
+            case BlendMode::DstIn:   fa = 0;    fb = sa;    break;
+            case BlendMode::SrcOut:  fa = invDa; fb = 0;    break;
+            case BlendMode::DstOut:  fa = 0;    fb = invSa; break;
+            case BlendMode::SrcAtop: fa = da;   fb = invSa; break;
+            case BlendMode::DstAtop: fa = invDa; fb = sa;   break;
+            case BlendMode::Xor:     fa = invDa; fb = invSa; break;
+            case BlendMode::Clear:   return {0, 0, 0, 0};
+        }
+        // Apply as premultiplied: src color is weighted by src.a, dst by dst.a
+        u8 outR = u8((src.r * sa * fa / 255 + dst.r * da * fb / 255) / 255);
+        u8 outG = u8((src.g * sa * fa / 255 + dst.g * da * fb / 255) / 255);
+        u8 outB = u8((src.b * sa * fa / 255 + dst.b * da * fb / 255) / 255);
+        u8 outA = u8((sa * fa + da * fb) / 255);
+        return {outR, outG, outB, outA};
+    }
+
+    void blendPixel(i32 x, i32 y, Color c, BlendMode mode = BlendMode::SrcOver) {
         if (!target_ || !target_->valid()) return;
         if (x < 0 || x >= target_->width() || y < 0 || y >= target_->height()) return;
         if (isClipped(x, y)) return;
@@ -210,14 +236,8 @@ private:
         u32& pixel = row[x];
 
         Color dst = decodePixel(pixel);
-
-        u32 invA = 255 - c.a;
-        u8 outR = u8((c.r * c.a + dst.r * invA) / 255);
-        u8 outG = u8((c.g * c.a + dst.g * invA) / 255);
-        u8 outB = u8((c.b * c.a + dst.b * invA) / 255);
-        u8 outA = u8((c.a * 255 + dst.a * invA) / 255);
-
-        pixel = encodePixel({outR, outG, outB, outA});
+        Color out = blendColors(c, dst, mode);
+        pixel = encodePixel(out);
     }
 };
 
