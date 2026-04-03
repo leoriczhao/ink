@@ -3,7 +3,7 @@
 project = 'ink'
 copyright = '2024, ink contributors'
 author = 'ink contributors'
-release = '0.1.1'
+release = '0.2.0'
 
 extensions = [
     'breathe',
