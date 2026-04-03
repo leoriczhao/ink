@@ -18,3 +18,4 @@ compile_commands.json
 !.opencode/skills/
 !.opencode/skills/**
 docs/_build/
+.claude/worktrees/

@@ -171,6 +171,7 @@ if(INK_BUILD_TESTS)
         tests/test_matrix.cpp
         tests/test_transform.cpp
         tests/test_paint.cpp
+        tests/test_blend.cpp
         tests/test_pixmap.cpp
         tests/test_recording.cpp
         tests/test_draw_pass.cpp
