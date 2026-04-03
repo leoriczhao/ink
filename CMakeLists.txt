@@ -179,6 +179,7 @@ if(INK_BUILD_TESTS)
         tests/test_canvas.cpp
         tests/test_surface.cpp
         tests/test_composite.cpp
+        tests/test_shapes.cpp
     )
 
     add_executable(ink_tests ${INK_TEST_SOURCES})

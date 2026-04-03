@@ -50,6 +50,21 @@ const Matrix* DrawOpArena::getMatrix(u32 offset) const {
     return reinterpret_cast<const Matrix*>(data_.data() + offset);
 }
 
+u32 DrawOpArena::storeRoundRect(Rect r, f32 rx, f32 ry) {
+    // Store Rect (16 bytes) + rx (4 bytes) + ry (4 bytes) = 24 bytes
+    u32 offset = allocate(sizeof(Rect) + sizeof(f32) * 2);
+    std::memcpy(data_.data() + offset, &r, sizeof(Rect));
+    std::memcpy(data_.data() + offset + sizeof(Rect), &rx, sizeof(f32));
+    std::memcpy(data_.data() + offset + sizeof(Rect) + sizeof(f32), &ry, sizeof(f32));
+    return offset;
+}
+
+void DrawOpArena::getRoundRect(u32 offset, Rect& r, f32& rx, f32& ry) const {
+    std::memcpy(&r, data_.data() + offset, sizeof(Rect));
+    std::memcpy(&rx, data_.data() + offset + sizeof(Rect), sizeof(f32));
+    std::memcpy(&ry, data_.data() + offset + sizeof(Rect) + sizeof(f32), sizeof(f32));
+}
+
 void DrawOpArena::reset() {
     data_.clear();
 }
@@ -108,6 +123,26 @@ void Recording::dispatchOp(const CompactDrawOp& op, DrawOpVisitor& visitor) cons
         case DrawOp::Type::ClearTransform:
             visitor.visitClearTransform();
             break;
+        case DrawOp::Type::FillCircle:
+            visitor.visitFillCircle(op.data.circle.cx, op.data.circle.cy,
+                                   op.data.circle.radius, op.color, op.blendMode, op.opacity);
+            break;
+        case DrawOp::Type::StrokeCircle:
+            visitor.visitStrokeCircle(op.data.circle.cx, op.data.circle.cy,
+                                     op.data.circle.radius, op.color, op.width, op.blendMode, op.opacity);
+            break;
+        case DrawOp::Type::FillRoundRect: {
+            Rect r; f32 rx, ry;
+            arena_.getRoundRect(op.data.roundRect.arenaOffset, r, rx, ry);
+            visitor.visitFillRoundRect(r, rx, ry, op.color, op.blendMode, op.opacity);
+            break;
+        }
+        case DrawOp::Type::StrokeRoundRect: {
+            Rect r; f32 rx, ry;
+            arena_.getRoundRect(op.data.roundRect.arenaOffset, r, rx, ry);
+            visitor.visitStrokeRoundRect(r, rx, ry, op.color, op.width, op.blendMode, op.opacity);
+            break;
+        }
     }
 }
 
@@ -214,6 +249,44 @@ void Recorder::clearTransform() {
     ops_.push_back(op);
 }
 
+void Recorder::fillCircle(f32 cx, f32 cy, f32 radius, Color c) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::FillCircle;
+    op.color = c;
+    op.data.circle.cx = cx;
+    op.data.circle.cy = cy;
+    op.data.circle.radius = radius;
+    ops_.push_back(op);
+}
+
+void Recorder::strokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::StrokeCircle;
+    op.color = c;
+    op.width = width;
+    op.data.circle.cx = cx;
+    op.data.circle.cy = cy;
+    op.data.circle.radius = radius;
+    ops_.push_back(op);
+}
+
+void Recorder::fillRoundRect(Rect r, f32 rx, f32 ry, Color c) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::FillRoundRect;
+    op.color = c;
+    op.data.roundRect.arenaOffset = arena_.storeRoundRect(r, rx, ry);
+    ops_.push_back(op);
+}
+
+void Recorder::strokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::StrokeRoundRect;
+    op.color = c;
+    op.width = width;
+    op.data.roundRect.arenaOffset = arena_.storeRoundRect(r, rx, ry);
+    ops_.push_back(op);
+}
+
 // --- Paint-based overloads ---
 
 void Recorder::fillRect(Rect r, const Paint& p) {
@@ -270,6 +343,52 @@ void Recorder::drawText(Point pos, std::string_view text, const Paint& p) {
     op.data.text.pos = pos;
     op.data.text.offset = arena_.storeString(text);
     op.data.text.len = static_cast<u32>(text.size());
+    ops_.push_back(op);
+}
+
+void Recorder::fillCircle(f32 cx, f32 cy, f32 radius, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::FillCircle;
+    op.color = p.color;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.circle.cx = cx;
+    op.data.circle.cy = cy;
+    op.data.circle.radius = radius;
+    ops_.push_back(op);
+}
+
+void Recorder::strokeCircle(f32 cx, f32 cy, f32 radius, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::StrokeCircle;
+    op.color = p.color;
+    op.width = p.strokeWidth;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.circle.cx = cx;
+    op.data.circle.cy = cy;
+    op.data.circle.radius = radius;
+    ops_.push_back(op);
+}
+
+void Recorder::fillRoundRect(Rect r, f32 rx, f32 ry, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::FillRoundRect;
+    op.color = p.color;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.roundRect.arenaOffset = arena_.storeRoundRect(r, rx, ry);
+    ops_.push_back(op);
+}
+
+void Recorder::strokeRoundRect(Rect r, f32 rx, f32 ry, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::StrokeRoundRect;
+    op.color = p.color;
+    op.width = p.strokeWidth;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.roundRect.arenaOffset = arena_.storeRoundRect(r, rx, ry);
     ops_.push_back(op);
 }
 

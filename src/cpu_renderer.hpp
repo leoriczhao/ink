@@ -154,6 +154,138 @@ public:
         currentTransform_ = Matrix::Identity();
     }
 
+    void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
+        Point center = currentTransform_.mapPoint({cx, cy});
+        f32 r = radius;
+        if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
+            r *= std::abs(currentTransform_.scaleX);
+        }
+        Rect bounds = {center.x - r, center.y - r, r * 2, r * 2};
+        Rect clip = effectiveClip();
+        i32 x0 = std::max(i32(bounds.x), i32(clip.x));
+        i32 y0 = std::max(i32(bounds.y), i32(clip.y));
+        i32 x1 = std::min(i32(bounds.x + bounds.w + 1), i32(clip.x + clip.w));
+        i32 y1 = std::min(i32(bounds.y + bounds.h + 1), i32(clip.y + clip.h));
+        f32 r2 = r * r;
+        for (i32 y = y0; y < y1; ++y) {
+            for (i32 x = x0; x < x1; ++x) {
+                f32 dx = (x + 0.5f) - center.x;
+                f32 dy = (y + 0.5f) - center.y;
+                if (dx * dx + dy * dy <= r2) {
+                    blendPixel(x, y, c);
+                }
+            }
+        }
+    }
+
+    void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
+        Point center = currentTransform_.mapPoint({cx, cy});
+        f32 r = radius;
+        f32 w = width > 0 ? width : 1.0f;
+        if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
+            f32 s = std::abs(currentTransform_.scaleX);
+            r *= s;
+            w *= s;
+        }
+        f32 hw = w * 0.5f;
+        f32 outerR = r + hw;
+        f32 innerR = r - hw;
+        if (innerR < 0) innerR = 0;
+        Rect bounds = {center.x - outerR, center.y - outerR, outerR * 2, outerR * 2};
+        Rect clip = effectiveClip();
+        i32 x0 = std::max(i32(bounds.x), i32(clip.x));
+        i32 y0 = std::max(i32(bounds.y), i32(clip.y));
+        i32 x1 = std::min(i32(bounds.x + bounds.w + 1), i32(clip.x + clip.w));
+        i32 y1 = std::min(i32(bounds.y + bounds.h + 1), i32(clip.y + clip.h));
+        f32 outerR2 = outerR * outerR;
+        f32 innerR2 = innerR * innerR;
+        for (i32 y = y0; y < y1; ++y) {
+            for (i32 x = x0; x < x1; ++x) {
+                f32 dx = (x + 0.5f) - center.x;
+                f32 dy = (y + 0.5f) - center.y;
+                f32 dist2 = dx * dx + dy * dy;
+                if (dist2 <= outerR2 && dist2 >= innerR2) {
+                    blendPixel(x, y, c);
+                }
+            }
+        }
+    }
+
+    void visitFillRoundRect(Rect rect, f32 rx, f32 ry, Color c, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
+        Rect tr = currentTransform_.isIdentity() ? rect : currentTransform_.mapRect(rect);
+        f32 crx = rx, cry = ry;
+        if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
+            crx *= std::abs(currentTransform_.scaleX);
+            cry *= std::abs(currentTransform_.scaleY);
+        }
+        // Clamp corner radii to half the rect dimensions
+        crx = std::min(crx, tr.w * 0.5f);
+        cry = std::min(cry, tr.h * 0.5f);
+
+        Rect clip = effectiveClip();
+        i32 x0 = std::max(i32(tr.x), i32(clip.x));
+        i32 y0 = std::max(i32(tr.y), i32(clip.y));
+        i32 x1 = std::min(i32(tr.x + tr.w), i32(clip.x + clip.w));
+        i32 y1 = std::min(i32(tr.y + tr.h), i32(clip.y + clip.h));
+
+        for (i32 y = y0; y < y1; ++y) {
+            for (i32 x = x0; x < x1; ++x) {
+                if (isInsideRoundRect(f32(x) + 0.5f, f32(y) + 0.5f, tr, crx, cry)) {
+                    blendPixel(x, y, c);
+                }
+            }
+        }
+    }
+
+    void visitStrokeRoundRect(Rect rect, f32 rx, f32 ry, Color c, f32 width, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
+        Rect tr = currentTransform_.isIdentity() ? rect : currentTransform_.mapRect(rect);
+        f32 w = width > 0 ? width : 1.0f;
+        f32 crx = rx, cry = ry;
+        if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
+            f32 sx = std::abs(currentTransform_.scaleX);
+            f32 sy = std::abs(currentTransform_.scaleY);
+            crx *= sx;
+            cry *= sy;
+            w *= sx;
+        }
+        crx = std::min(crx, tr.w * 0.5f);
+        cry = std::min(cry, tr.h * 0.5f);
+
+        f32 hw = w * 0.5f;
+        // Outer rect expanded by half-width, inner rect shrunk by half-width
+        Rect outer = {tr.x - hw, tr.y - hw, tr.w + w, tr.h + w};
+        Rect inner = {tr.x + hw, tr.y + hw, tr.w - w, tr.h - w};
+        f32 outerRx = crx + hw, outerRy = cry + hw;
+        f32 innerRx = crx - hw, innerRy = cry - hw;
+        if (innerRx < 0) innerRx = 0;
+        if (innerRy < 0) innerRy = 0;
+        if (inner.w < 0) inner.w = 0;
+        if (inner.h < 0) inner.h = 0;
+
+        Rect clip = effectiveClip();
+        i32 x0 = std::max(i32(outer.x), i32(clip.x));
+        i32 y0 = std::max(i32(outer.y), i32(clip.y));
+        i32 x1 = std::min(i32(outer.x + outer.w + 1), i32(clip.x + clip.w));
+        i32 y1 = std::min(i32(outer.y + outer.h + 1), i32(clip.y + clip.h));
+
+        for (i32 y = y0; y < y1; ++y) {
+            for (i32 x = x0; x < x1; ++x) {
+                f32 px = f32(x) + 0.5f;
+                f32 py = f32(y) + 0.5f;
+                bool inOuter = isInsideRoundRect(px, py, outer, outerRx, outerRy);
+                bool inInner = (inner.w > 0 && inner.h > 0) &&
+                               isInsideRoundRect(px, py, inner, innerRx, innerRy);
+                if (inOuter && !inInner) {
+                    blendPixel(x, y, c);
+                }
+            }
+        }
+    }
+
 private:
     Pixmap* target_ = nullptr;
     GlyphCache* glyphCache_ = nullptr;
@@ -161,6 +293,37 @@ private:
     bool hasClip_ = false;
     bool isBGRA_ = true;
     Matrix currentTransform_;
+
+    /// @brief Test if a point is inside a rounded rectangle.
+    static bool isInsideRoundRect(f32 px, f32 py, Rect r, f32 rx, f32 ry) {
+        // First check if inside the bounding rect at all
+        if (px < r.x || px > r.x + r.w || py < r.y || py > r.y + r.h)
+            return false;
+
+        // Check corners: if we're in a corner region, test ellipse distance
+        f32 left = r.x + rx;
+        f32 right = r.x + r.w - rx;
+        f32 top = r.y + ry;
+        f32 bottom = r.y + r.h - ry;
+
+        f32 dx = 0, dy = 0;
+        if (px < left && py < top) {
+            dx = (px - left) / rx;
+            dy = (py - top) / ry;
+        } else if (px > right && py < top) {
+            dx = (px - right) / rx;
+            dy = (py - top) / ry;
+        } else if (px < left && py > bottom) {
+            dx = (px - left) / rx;
+            dy = (py - bottom) / ry;
+        } else if (px > right && py > bottom) {
+            dx = (px - right) / rx;
+            dy = (py - bottom) / ry;
+        } else {
+            return true; // In the cross region, not a corner
+        }
+        return (dx * dx + dy * dy) <= 1.0f;
+    }
 
     bool isClipped(i32 x, i32 y) const {
         if (!hasClip_) return false;

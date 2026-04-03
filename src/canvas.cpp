@@ -30,6 +30,22 @@ void Canvas::drawImage(std::shared_ptr<Image> image, f32 x, f32 y) {
     device_->drawImage(std::move(image), x, y);
 }
 
+void Canvas::fillCircle(f32 cx, f32 cy, f32 radius, Color c) {
+    device_->fillCircle(cx, cy, radius, Paint::Fill(c));
+}
+
+void Canvas::strokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width) {
+    device_->strokeCircle(cx, cy, radius, Paint::Stroke(c, width));
+}
+
+void Canvas::fillRoundRect(Rect r, f32 rx, f32 ry, Color c) {
+    device_->fillRoundRect(r, rx, ry, Paint::Fill(c));
+}
+
+void Canvas::strokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width) {
+    device_->strokeRoundRect(r, rx, ry, Paint::Stroke(c, width));
+}
+
 void Canvas::draw(Rect r, const Paint& paint) {
     if (paint.style == PaintStyle::Fill || paint.style == PaintStyle::FillAndStroke) {
         device_->fillRect(r, paint);

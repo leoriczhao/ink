@@ -348,6 +348,22 @@ public:
         flushColorBatch();
     }
 
+    void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode, u8) override {
+        pushCircleFan(cx, cy, radius, c, 48);
+    }
+
+    void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width, BlendMode, u8) override {
+        pushCircleRing(cx, cy, radius, c, width > 0 ? width : 1.0f, 48);
+    }
+
+    void visitFillRoundRect(Rect r, f32 rx, f32 ry, Color c, BlendMode, u8) override {
+        pushRoundRectFill(r, rx, ry, c, 16);
+    }
+
+    void visitStrokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width, BlendMode, u8) override {
+        pushRoundRectStroke(r, rx, ry, c, width > 0 ? width : 1.0f, 16);
+    }
+
     std::shared_ptr<Image> makeSnapshot() const override {
         if (framebuffer_.width <= 0 || framebuffer_.height <= 0 || !framebuffer_.texture)
             return nullptr;
@@ -449,6 +465,117 @@ public:
             {x0,y0,u0,v0}, {x1,y0,u1,v0}, {x0,y1,u0,v1},
             {x1,y0,u1,v0}, {x1,y1,u1,v1}, {x0,y1,u0,v1}
         });
+    }
+
+    void pushCircleFan(float cx, float cy, float radius, Color c, int segments) {
+        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
+        float step = 2.0f * 3.14159265f / segments;
+        for (int i = 0; i < segments; ++i) {
+            float a0 = i * step, a1 = (i + 1) * step;
+            float x0 = cx + radius * std::cos(a0), y0 = cy + radius * std::sin(a0);
+            float x1 = cx + radius * std::cos(a1), y1 = cy + radius * std::sin(a1);
+            colorVerts_.insert(colorVerts_.end(), {
+                {cx, cy, r, g, b, a}, {x0, y0, r, g, b, a}, {x1, y1, r, g, b, a}
+            });
+        }
+    }
+
+    void pushCircleRing(float cx, float cy, float radius, Color c, float width, int segments) {
+        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
+        float hw = width * 0.5f;
+        float outerR = radius + hw, innerR = radius - hw;
+        if (innerR < 0) innerR = 0;
+        float step = 2.0f * 3.14159265f / segments;
+        for (int i = 0; i < segments; ++i) {
+            float a0 = i * step, a1 = (i + 1) * step;
+            float cos0 = std::cos(a0), sin0 = std::sin(a0);
+            float cos1 = std::cos(a1), sin1 = std::sin(a1);
+            float ox0 = cx + outerR * cos0, oy0 = cy + outerR * sin0;
+            float ox1 = cx + outerR * cos1, oy1 = cy + outerR * sin1;
+            float ix0 = cx + innerR * cos0, iy0 = cy + innerR * sin0;
+            float ix1 = cx + innerR * cos1, iy1 = cy + innerR * sin1;
+            colorVerts_.insert(colorVerts_.end(), {
+                {ox0, oy0, r, g, b, a}, {ix0, iy0, r, g, b, a}, {ox1, oy1, r, g, b, a},
+                {ix0, iy0, r, g, b, a}, {ix1, iy1, r, g, b, a}, {ox1, oy1, r, g, b, a}
+            });
+        }
+    }
+
+    void pushRoundRectFill(Rect rect, float rx, float ry, Color c, int cornerSegs) {
+        rx = std::min(rx, rect.w * 0.5f);
+        ry = std::min(ry, rect.h * 0.5f);
+        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
+        float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+
+        // Center cross
+        pushQuad(x + rx, y, x + w - rx, y + h, c);
+        pushQuad(x, y + ry, x + rx, y + h - ry, c);
+        pushQuad(x + w - rx, y + ry, x + w, y + h - ry, c);
+
+        // Four corner fans
+        float step = (3.14159265f * 0.5f) / cornerSegs;
+        struct Corner { float cx, cy; float startAngle; };
+        Corner corners[4] = {
+            {x + rx,     y + ry,     3.14159265f},
+            {x + w - rx, y + ry,     3.14159265f * 1.5f},
+            {x + w - rx, y + h - ry, 0.0f},
+            {x + rx,     y + h - ry, 3.14159265f * 0.5f}
+        };
+        for (auto& co : corners) {
+            for (int i = 0; i < cornerSegs; ++i) {
+                float a0 = co.startAngle + i * step;
+                float a1 = co.startAngle + (i + 1) * step;
+                float px0 = co.cx + rx * std::cos(a0), py0 = co.cy + ry * std::sin(a0);
+                float px1 = co.cx + rx * std::cos(a1), py1 = co.cy + ry * std::sin(a1);
+                colorVerts_.insert(colorVerts_.end(), {
+                    {co.cx, co.cy, r, g, b, a}, {px0, py0, r, g, b, a}, {px1, py1, r, g, b, a}
+                });
+            }
+        }
+    }
+
+    void pushRoundRectStroke(Rect rect, float rx, float ry, Color c, float width, int cornerSegs) {
+        rx = std::min(rx, rect.w * 0.5f);
+        ry = std::min(ry, rect.h * 0.5f);
+        float cr = c.r/255.0f, cg = c.g/255.0f, cb = c.b/255.0f, ca = c.a/255.0f;
+        float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+        float hw = width * 0.5f;
+
+        // Edges
+        pushQuad(x + rx, y - hw, x + w - rx, y + hw, c);
+        pushQuad(x + rx, y + h - hw, x + w - rx, y + h + hw, c);
+        pushQuad(x - hw, y + ry, x + hw, y + h - ry, c);
+        pushQuad(x + w - hw, y + ry, x + w + hw, y + h - ry, c);
+
+        // Corner arcs
+        float step = (3.14159265f * 0.5f) / cornerSegs;
+        struct Corner { float cx, cy; float startAngle; };
+        Corner corners[4] = {
+            {x + rx,     y + ry,     3.14159265f},
+            {x + w - rx, y + ry,     3.14159265f * 1.5f},
+            {x + w - rx, y + h - ry, 0.0f},
+            {x + rx,     y + h - ry, 3.14159265f * 0.5f}
+        };
+        float outerRx = rx + hw, outerRy = ry + hw;
+        float innerRx = rx - hw, innerRy = ry - hw;
+        if (innerRx < 0) innerRx = 0;
+        if (innerRy < 0) innerRy = 0;
+        for (auto& co : corners) {
+            for (int i = 0; i < cornerSegs; ++i) {
+                float a0 = co.startAngle + i * step;
+                float a1 = co.startAngle + (i + 1) * step;
+                float cos0 = std::cos(a0), sin0 = std::sin(a0);
+                float cos1 = std::cos(a1), sin1 = std::sin(a1);
+                float ox0 = co.cx + outerRx * cos0, oy0 = co.cy + outerRy * sin0;
+                float ox1 = co.cx + outerRx * cos1, oy1 = co.cy + outerRy * sin1;
+                float ix0 = co.cx + innerRx * cos0, iy0 = co.cy + innerRy * sin0;
+                float ix1 = co.cx + innerRx * cos1, iy1 = co.cy + innerRy * sin1;
+                colorVerts_.insert(colorVerts_.end(), {
+                    {ox0, oy0, cr, cg, cb, ca}, {ix0, iy0, cr, cg, cb, ca}, {ox1, oy1, cr, cg, cb, ca},
+                    {ix0, iy0, cr, cg, cb, ca}, {ix1, iy1, cr, cg, cb, ca}, {ox1, oy1, cr, cg, cb, ca}
+                });
+            }
+        }
     }
 
     void flushColorBatch() {

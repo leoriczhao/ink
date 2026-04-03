@@ -35,6 +35,22 @@ void Device::drawImage(std::shared_ptr<Image> image, f32 x, f32 y) {
     recorder_.drawImage(std::move(image), x, y);
 }
 
+void Device::fillCircle(f32 cx, f32 cy, f32 radius, const Paint& paint) {
+    recorder_.fillCircle(cx, cy, radius, paint);
+}
+
+void Device::strokeCircle(f32 cx, f32 cy, f32 radius, const Paint& paint) {
+    recorder_.strokeCircle(cx, cy, radius, paint);
+}
+
+void Device::fillRoundRect(Rect r, f32 rx, f32 ry, const Paint& paint) {
+    recorder_.fillRoundRect(r, rx, ry, paint);
+}
+
+void Device::strokeRoundRect(Rect r, f32 rx, f32 ry, const Paint& paint) {
+    recorder_.strokeRoundRect(r, rx, ry, paint);
+}
+
 void Device::setClipRect(Rect r) {
     recorder_.setClip(r);
 }
