@@ -2,6 +2,7 @@
 #include <ink/recording.hpp>
 #include <ink/draw_op_visitor.hpp>
 #include <ink/image.hpp>
+#include <ink/paint.hpp>
 
 #include <string>
 #include <vector>
@@ -22,22 +23,22 @@ class MockVisitor : public DrawOpVisitor {
 public:
     std::vector<VisitorCall> calls;
 
-    void visitFillRect(Rect, Color) override {
+    void visitFillRect(Rect, Color, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::FillRect});
     }
-    void visitStrokeRect(Rect, Color, f32) override {
+    void visitStrokeRect(Rect, Color, f32, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::StrokeRect});
     }
-    void visitLine(Point, Point, Color, f32) override {
+    void visitLine(Point, Point, Color, f32, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::Line});
     }
-    void visitPolyline(const Point*, i32, Color, f32) override {
+    void visitPolyline(const Point*, i32, Color, f32, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::Polyline});
     }
-    void visitText(Point, const char*, u32, Color) override {
+    void visitText(Point, const char*, u32, Color, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::Text});
     }
-    void visitDrawImage(const Image*, f32, f32) override {
+    void visitDrawImage(const Image*, f32, f32, BlendMode, u8) override {
         calls.push_back({VisitorCall::Kind::DrawImage});
     }
     void visitSetClip(Rect) override {

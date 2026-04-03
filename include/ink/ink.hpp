@@ -27,6 +27,7 @@
 // Core types
 #include "ink/types.hpp"
 #include "ink/matrix.hpp"
+#include "ink/paint.hpp"
 
 // Pixel data
 #include "ink/pixmap.hpp"

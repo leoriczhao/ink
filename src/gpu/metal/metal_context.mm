@@ -9,6 +9,7 @@
 #include "ink/draw_pass.hpp"
 #include "ink/draw_op_visitor.hpp"
 #include "ink/image.hpp"
+#include "ink/paint.hpp"
 #include "ink/glyph_cache.hpp"
 #include "gpu_impl.hpp"
 #include "metal_resources.hpp"
@@ -250,11 +251,11 @@ public:
     }
 
     // DrawOpVisitor interface
-    void visitFillRect(Rect r, Color c) override {
+    void visitFillRect(Rect r, Color c, BlendMode, u8) override {
         pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, c);
     }
 
-    void visitStrokeRect(Rect r, Color c, f32 width) override {
+    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8) override {
         float w = width > 0 ? width : 1.0f;
         pushQuad(r.x, r.y, r.x + r.w, r.y + w, c);
         pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, c);
@@ -262,17 +263,17 @@ public:
         pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, c);
     }
 
-    void visitLine(Point p1, Point p2, Color c, f32 width) override {
+    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8) override {
         pushLine(p1.x, p1.y, p2.x, p2.y, c, width > 0 ? width : 1.0f);
     }
 
-    void visitPolyline(const Point* pts, i32 count, Color c, f32 width) override {
+    void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode, u8) override {
         float w = width > 0 ? width : 1.0f;
         for (i32 i = 0; i + 1 < count; ++i)
             pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, c, w);
     }
 
-    void visitText(Point p, const char* text, u32 len, Color c) override {
+    void visitText(Point p, const char* text, u32 len, Color c, BlendMode, u8) override {
         flushColorBatch();
         if (glyphCache_) {
             i32 tw = glyphCache_->measureText(std::string_view(text, len));
@@ -291,7 +292,7 @@ public:
         }
     }
 
-    void visitDrawImage(const Image* image, f32 x, f32 y) override {
+    void visitDrawImage(const Image* image, f32 x, f32 y, BlendMode, u8) override {
         flushColorBatch();
         if (image && image->valid()) {
             id<MTLTexture> tex = textureCache_.resolve(device_, image);

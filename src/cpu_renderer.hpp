@@ -8,6 +8,7 @@
 #include "ink/image.hpp"
 #include "ink/glyph_cache.hpp"
 #include "ink/matrix.hpp"
+#include "ink/paint.hpp"
 #include <cmath>
 
 namespace ink {
@@ -45,12 +46,14 @@ public:
     }
 
     // DrawOpVisitor interface
-    void visitFillRect(Rect r, Color c) override {
+    void visitFillRect(Rect r, Color c, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
         Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
         fillRectScreen(tr, c);
     }
 
-    void visitStrokeRect(Rect r, Color c, f32 width) override {
+    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
         Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
         f32 w = width > 0 ? width : 1;
         if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
@@ -63,7 +66,8 @@ public:
         fillRectScreen({tr.x + tr.w - iw, tr.y + iw, f32(iw), tr.h - iw * 2}, c);
     }
 
-    void visitLine(Point p1, Point p2, Color c, f32 width) override {
+    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
         Point tp1 = currentTransform_.mapPoint(p1);
         Point tp2 = currentTransform_.mapPoint(p2);
         i32 w = i32(width > 0 ? width : 1);
@@ -87,13 +91,14 @@ public:
         }
     }
 
-    void visitPolyline(const Point* pts, i32 count, Color c, f32 width) override {
+    void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode blend, u8 opacity) override {
+        c.a = u8(c.a * opacity / 255);
         for (i32 i = 0; i + 1 < count; ++i) {
-            visitLine(pts[i], pts[i + 1], c, width);
+            visitLine(pts[i], pts[i + 1], c, width, blend, opacity);
         }
     }
 
-    void visitText(Point p, const char* text, u32 len, Color c) override {
+    void visitText(Point p, const char* text, u32 len, Color c, BlendMode, u8) override {
         if (!glyphCache_ || !target_) return;
         Point tp = currentTransform_.mapPoint(p);
         u32* pixels = static_cast<u32*>(target_->addr());
@@ -103,7 +108,7 @@ public:
                               i32(tp.x), i32(tp.y), std::string_view(text, len), c);
     }
 
-    void visitDrawImage(const Image* image, f32 x, f32 y) override {
+    void visitDrawImage(const Image* image, f32 x, f32 y, BlendMode, u8) override {
         if (!image || !image->valid() || !target_) return;
         if (!image->isCpuBacked()) return;
 

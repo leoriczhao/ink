@@ -7,27 +7,40 @@ namespace ink {
 Canvas::Canvas(Device* device) : device_(device) {}
 
 void Canvas::fillRect(Rect r, Color c) {
-    device_->fillRect(r, c);
+    device_->fillRect(r, Paint::Fill(c));
 }
 
 void Canvas::strokeRect(Rect r, Color c, f32 width) {
-    device_->strokeRect(r, c, width);
+    device_->strokeRect(r, Paint::Stroke(c, width));
 }
 
 void Canvas::drawLine(Point p1, Point p2, Color c, f32 width) {
-    device_->drawLine(p1, p2, c, width);
+    device_->drawLine(p1, p2, Paint::Stroke(c, width));
 }
 
 void Canvas::drawPolyline(const Point* pts, i32 count, Color c, f32 width) {
-    device_->drawPolyline(pts, count, c, width);
+    device_->drawPolyline(pts, count, Paint::Stroke(c, width));
 }
 
 void Canvas::drawText(Point p, std::string_view text, Color c) {
-    device_->drawText(p, text, c);
+    device_->drawText(p, text, Paint::Fill(c));
 }
 
 void Canvas::drawImage(std::shared_ptr<Image> image, f32 x, f32 y) {
     device_->drawImage(std::move(image), x, y);
+}
+
+void Canvas::draw(Rect r, const Paint& paint) {
+    if (paint.style == PaintStyle::Fill || paint.style == PaintStyle::FillAndStroke) {
+        device_->fillRect(r, paint);
+    }
+    if (paint.style == PaintStyle::Stroke || paint.style == PaintStyle::FillAndStroke) {
+        device_->strokeRect(r, paint);
+    }
+}
+
+void Canvas::draw(Point p1, Point p2, const Paint& paint) {
+    device_->drawLine(p1, p2, paint);
 }
 
 void Canvas::save() {

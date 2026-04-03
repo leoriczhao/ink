@@ -7,6 +7,7 @@
 
 #include "ink/types.hpp"
 #include "ink/matrix.hpp"
+#include "ink/paint.hpp"
 #include <string_view>
 #include <vector>
 #include <memory>
@@ -63,6 +64,17 @@ public:
     /// @param x X position.
     /// @param y Y position.
     void drawImage(std::shared_ptr<Image> image, f32 x, f32 y);
+
+    /// @name Paint-based drawing (advanced)
+    /// @{
+
+    /// @brief Draw a rectangle with a Paint (supports blend modes, opacity).
+    void draw(Rect r, const Paint& paint);
+
+    /// @brief Draw a line with a Paint (supports blend modes, opacity).
+    void draw(Point p1, Point p2, const Paint& paint);
+
+    /// @}
 
     /// @brief Save the current clip state onto the stack.
     void save();
