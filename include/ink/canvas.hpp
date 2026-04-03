@@ -65,6 +65,36 @@ public:
     /// @param y Y position.
     void drawImage(std::shared_ptr<Image> image, f32 x, f32 y);
 
+    /// @brief Fill a circle with a solid color.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param c Fill color.
+    void fillCircle(f32 cx, f32 cy, f32 radius, Color c);
+
+    /// @brief Stroke a circle outline.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param c Stroke color.
+    /// @param width Stroke line width (default 1.0).
+    void strokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width = 1.0f);
+
+    /// @brief Fill a rounded rectangle with a solid color.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param c Fill color.
+    void fillRoundRect(Rect r, f32 rx, f32 ry, Color c);
+
+    /// @brief Stroke a rounded rectangle outline.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param c Stroke color.
+    /// @param width Stroke line width (default 1.0).
+    void strokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width = 1.0f);
+
     /// @name Paint-based drawing (advanced)
     /// @{
 

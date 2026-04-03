@@ -86,6 +86,44 @@ public:
 
     /// @brief Visit a clear-transform command (resets to identity).
     virtual void visitClearTransform() = 0;
+
+    /// @brief Visit a filled circle command.
+    /// @param cx Center X coordinate.
+    /// @param cy Center Y coordinate.
+    /// @param radius Circle radius.
+    /// @param color Fill color.
+    /// @param blend Blend mode.
+    /// @param opacity Opacity 0-255.
+    virtual void visitFillCircle(f32 cx, f32 cy, f32 radius, Color color, BlendMode blend, u8 opacity) = 0;
+
+    /// @brief Visit a stroked circle command.
+    /// @param cx Center X coordinate.
+    /// @param cy Center Y coordinate.
+    /// @param radius Circle radius.
+    /// @param color Stroke color.
+    /// @param width Stroke line width.
+    /// @param blend Blend mode.
+    /// @param opacity Opacity 0-255.
+    virtual void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color color, f32 width, BlendMode blend, u8 opacity) = 0;
+
+    /// @brief Visit a filled rounded rectangle command.
+    /// @param rect The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param color Fill color.
+    /// @param blend Blend mode.
+    /// @param opacity Opacity 0-255.
+    virtual void visitFillRoundRect(Rect rect, f32 rx, f32 ry, Color color, BlendMode blend, u8 opacity) = 0;
+
+    /// @brief Visit a stroked rounded rectangle command.
+    /// @param rect The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param color Stroke color.
+    /// @param width Stroke line width.
+    /// @param blend Blend mode.
+    /// @param opacity Opacity 0-255.
+    virtual void visitStrokeRoundRect(Rect rect, f32 rx, f32 ry, Color color, f32 width, BlendMode blend, u8 opacity) = 0;
 };
 
 } // namespace ink

@@ -32,7 +32,11 @@ struct DrawOp {
         SetClip,     ///< Set a clip rectangle.
         ClearClip,   ///< Clear the clip rectangle.
         SetTransform,  ///< Set a transform matrix.
-        ClearTransform ///< Clear the transform matrix.
+        ClearTransform, ///< Clear the transform matrix.
+        FillCircle,    ///< Fill a circle.
+        StrokeCircle,  ///< Stroke a circle outline.
+        FillRoundRect,   ///< Fill a rounded rectangle.
+        StrokeRoundRect  ///< Stroke a rounded rectangle outline.
     };
 };
 
@@ -79,6 +83,20 @@ public:
     /// @return Pointer to the Matrix.
     const Matrix* getMatrix(u32 offset) const;
 
+    /// @brief Store rounded rectangle data (Rect + rx + ry) in the arena.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @return Byte offset to the stored data.
+    u32 storeRoundRect(Rect r, f32 rx, f32 ry);
+
+    /// @brief Retrieve stored rounded rectangle data.
+    /// @param offset Byte offset returned by storeRoundRect().
+    /// @param r Output rectangle.
+    /// @param rx Output corner radius in X.
+    /// @param ry Output corner radius in Y.
+    void getRoundRect(u32 offset, Rect& r, f32& rx, f32& ry) const;
+
     /// @brief Reset the arena, discarding all stored data.
     void reset();
 
@@ -105,6 +123,8 @@ struct CompactDrawOp {
         struct { f32 x; f32 y; u32 imageIndex; } image;       ///< DrawImage data.
         struct { Rect rect; } clip;                           ///< SetClip data.
         struct { u32 matrixOffset; } transform;               ///< SetTransform data (arena offset).
+        struct { f32 cx, cy, radius; } circle;               ///< Circle data (12 bytes).
+        struct { u32 arenaOffset; } roundRect;               ///< RoundRect data (arena offset).
 
         Data() : fill{{}} {}
     } data;                 ///< Per-operation payload (16 bytes).
@@ -211,6 +231,36 @@ public:
     /// @brief Record a clear-transform operation.
     void clearTransform();
 
+    /// @brief Record a fill-circle operation.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param c Fill color.
+    void fillCircle(f32 cx, f32 cy, f32 radius, Color c);
+
+    /// @brief Record a stroke-circle operation.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param c Stroke color.
+    /// @param width Stroke line width.
+    void strokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width);
+
+    /// @brief Record a fill-rounded-rectangle operation.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param c Fill color.
+    void fillRoundRect(Rect r, f32 rx, f32 ry, Color c);
+
+    /// @brief Record a stroke-rounded-rectangle operation.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param c Stroke color.
+    /// @param width Stroke line width.
+    void strokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width);
+
     // --- Paint-based overloads ---
 
     /// @brief Record a fill-rectangle operation using a Paint.
@@ -240,6 +290,34 @@ public:
     /// @param text UTF-8 text to draw.
     /// @param p Paint describing style, color, blend, opacity.
     void drawText(Point pos, std::string_view text, const Paint& p);
+
+    /// @brief Record a fill-circle operation using a Paint.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param p Paint describing style, color, blend, opacity.
+    void fillCircle(f32 cx, f32 cy, f32 radius, const Paint& p);
+
+    /// @brief Record a stroke-circle operation using a Paint.
+    /// @param cx Center X.
+    /// @param cy Center Y.
+    /// @param radius Circle radius.
+    /// @param p Paint describing style, color, blend, opacity.
+    void strokeCircle(f32 cx, f32 cy, f32 radius, const Paint& p);
+
+    /// @brief Record a fill-rounded-rectangle operation using a Paint.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param p Paint describing style, color, blend, opacity.
+    void fillRoundRect(Rect r, f32 rx, f32 ry, const Paint& p);
+
+    /// @brief Record a stroke-rounded-rectangle operation using a Paint.
+    /// @param r The rectangle.
+    /// @param rx Corner radius in X.
+    /// @param ry Corner radius in Y.
+    /// @param p Paint describing style, color, blend, opacity.
+    void strokeRoundRect(Rect r, f32 rx, f32 ry, const Paint& p);
 
     /// @brief Finish recording and produce an immutable Recording.
     /// @return Unique pointer to the completed Recording.
