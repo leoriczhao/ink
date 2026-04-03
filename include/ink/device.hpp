@@ -6,6 +6,7 @@
  */
 
 #include "ink/types.hpp"
+#include "ink/matrix.hpp"
 #include "ink/recording.hpp"
 #include <memory>
 
@@ -79,6 +80,13 @@ public:
 
     /// @brief Clear the current clip rectangle.
     void resetClip();
+
+    /// @brief Set the current transformation matrix.
+    /// @param m The transformation matrix.
+    void setTransform(const Matrix& m);
+
+    /// @brief Clear the current transformation matrix (reset to identity).
+    void clearTransform();
 
     /// @brief Finish recording and return the immutable Recording.
     /// @return Unique pointer to the completed Recording.

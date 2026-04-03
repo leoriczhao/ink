@@ -7,6 +7,7 @@
 #include "ink/draw_pass.hpp"
 #include "ink/image.hpp"
 #include "ink/glyph_cache.hpp"
+#include "ink/matrix.hpp"
 #include <cmath>
 
 namespace ink {
@@ -25,6 +26,7 @@ public:
         }
         hasClip_ = false;
         clipRect_ = {};
+        currentTransform_ = Matrix::Identity();
     }
 
     void endFrame() override {}
@@ -44,31 +46,29 @@ public:
 
     // DrawOpVisitor interface
     void visitFillRect(Rect r, Color c) override {
-        Rect clip = effectiveClip();
-        i32 x0 = std::max(i32(r.x), i32(clip.x));
-        i32 y0 = std::max(i32(r.y), i32(clip.y));
-        i32 x1 = std::min(i32(r.x + r.w), i32(clip.x + clip.w));
-        i32 y1 = std::min(i32(r.y + r.h), i32(clip.y + clip.h));
-
-        for (i32 y = y0; y < y1; ++y) {
-            for (i32 x = x0; x < x1; ++x) {
-                blendPixel(x, y, c);
-            }
-        }
+        Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
+        fillRectScreen(tr, c);
     }
 
     void visitStrokeRect(Rect r, Color c, f32 width) override {
-        i32 w = i32(width > 0 ? width : 1);
-        visitFillRect({r.x, r.y, r.w, f32(w)}, c);
-        visitFillRect({r.x, r.y + r.h - w, r.w, f32(w)}, c);
-        visitFillRect({r.x, r.y + w, f32(w), r.h - w * 2}, c);
-        visitFillRect({r.x + r.w - w, r.y + w, f32(w), r.h - w * 2}, c);
+        Rect tr = currentTransform_.isIdentity() ? r : currentTransform_.mapRect(r);
+        f32 w = width > 0 ? width : 1;
+        if (!currentTransform_.isIdentity() && currentTransform_.isScaleTranslateOnly()) {
+            w *= std::abs(currentTransform_.scaleX);
+        }
+        i32 iw = i32(w);
+        fillRectScreen({tr.x, tr.y, tr.w, f32(iw)}, c);
+        fillRectScreen({tr.x, tr.y + tr.h - iw, tr.w, f32(iw)}, c);
+        fillRectScreen({tr.x, tr.y + iw, f32(iw), tr.h - iw * 2}, c);
+        fillRectScreen({tr.x + tr.w - iw, tr.y + iw, f32(iw), tr.h - iw * 2}, c);
     }
 
     void visitLine(Point p1, Point p2, Color c, f32 width) override {
+        Point tp1 = currentTransform_.mapPoint(p1);
+        Point tp2 = currentTransform_.mapPoint(p2);
         i32 w = i32(width > 0 ? width : 1);
-        i32 x0 = i32(p1.x), y0 = i32(p1.y);
-        i32 x1 = i32(p2.x), y1 = i32(p2.y);
+        i32 x0 = i32(tp1.x), y0 = i32(tp1.y);
+        i32 x1 = i32(tp2.x), y1 = i32(tp2.y);
 
         i32 dx = std::abs(x1 - x0), dy = std::abs(y1 - y0);
         i32 sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
@@ -95,18 +95,20 @@ public:
 
     void visitText(Point p, const char* text, u32 len, Color c) override {
         if (!glyphCache_ || !target_) return;
+        Point tp = currentTransform_.mapPoint(p);
         u32* pixels = static_cast<u32*>(target_->addr());
         // Stride in u32 units (not bytes, not pixel width)
         i32 strideU32 = target_->stride() / target_->info().bytesPerPixel();
         glyphCache_->drawText(pixels, strideU32, target_->height(),
-                              i32(p.x), i32(p.y), std::string_view(text, len), c);
+                              i32(tp.x), i32(tp.y), std::string_view(text, len), c);
     }
 
     void visitDrawImage(const Image* image, f32 x, f32 y) override {
         if (!image || !image->valid() || !target_) return;
         if (!image->isCpuBacked()) return;
 
-        i32 ix = i32(x), iy = i32(y);
+        Point tp = currentTransform_.mapPoint({x, y});
+        i32 ix = i32(tp.x), iy = i32(tp.y);
         i32 iw = image->width(), ih = image->height();
         const u8* srcPixels = static_cast<const u8*>(image->pixels());
         i32 srcStride = image->stride();
@@ -140,17 +142,37 @@ public:
         hasClip_ = false;
     }
 
+    void visitSetTransform(const Matrix& m) override {
+        currentTransform_ = m;
+    }
+
+    void visitClearTransform() override {
+        currentTransform_ = Matrix::Identity();
+    }
+
 private:
     Pixmap* target_ = nullptr;
     GlyphCache* glyphCache_ = nullptr;
     Rect clipRect_ = {};
     bool hasClip_ = false;
     bool isBGRA_ = true;
+    Matrix currentTransform_;
 
     bool isClipped(i32 x, i32 y) const {
         if (!hasClip_) return false;
         return x < clipRect_.x || x >= clipRect_.x + clipRect_.w ||
                y < clipRect_.y || y >= clipRect_.y + clipRect_.h;
+    }
+
+    void fillRectScreen(Rect r, Color c) {
+        Rect clip = effectiveClip();
+        i32 x0 = std::max(i32(r.x), i32(clip.x));
+        i32 y0 = std::max(i32(r.y), i32(clip.y));
+        i32 x1 = std::min(i32(r.x + r.w), i32(clip.x + clip.w));
+        i32 y1 = std::min(i32(r.y + r.h), i32(clip.y + clip.h));
+        for (i32 y = y0; y < y1; ++y)
+            for (i32 x = x0; x < x1; ++x)
+                blendPixel(x, y, c);
     }
 
     Rect effectiveClip() const {

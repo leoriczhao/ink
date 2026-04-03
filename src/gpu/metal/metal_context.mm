@@ -339,6 +339,14 @@ public:
         }
     }
 
+    void visitSetTransform(const Matrix&) override {
+        flushColorBatch();
+    }
+
+    void visitClearTransform() override {
+        flushColorBatch();
+    }
+
     std::shared_ptr<Image> makeSnapshot() const override {
         if (framebuffer_.width <= 0 || framebuffer_.height <= 0 || !framebuffer_.texture)
             return nullptr;

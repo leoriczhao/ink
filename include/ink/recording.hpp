@@ -6,6 +6,7 @@
  */
 
 #include "ink/types.hpp"
+#include "ink/matrix.hpp"
 #include <string_view>
 #include <vector>
 #include <memory>
@@ -28,7 +29,9 @@ struct DrawOp {
         Text,        ///< Draw text.
         DrawImage,   ///< Draw an image.
         SetClip,     ///< Set a clip rectangle.
-        ClearClip    ///< Clear the clip rectangle.
+        ClearClip,   ///< Clear the clip rectangle.
+        SetTransform,  ///< Set a transform matrix.
+        ClearTransform ///< Clear the transform matrix.
     };
 };
 
@@ -65,6 +68,16 @@ public:
     /// @return Pointer to the first Point.
     const Point* getPoints(u32 offset) const;
 
+    /// @brief Store a matrix in the arena.
+    /// @param m The matrix to store.
+    /// @return Byte offset to the stored matrix.
+    u32 storeMatrix(const Matrix& m);
+
+    /// @brief Retrieve a stored matrix by offset.
+    /// @param offset Byte offset returned by storeMatrix().
+    /// @return Pointer to the Matrix.
+    const Matrix* getMatrix(u32 offset) const;
+
     /// @brief Reset the arena, discarding all stored data.
     void reset();
 
@@ -88,6 +101,7 @@ struct CompactDrawOp {
         struct { Point pos; u32 offset; u32 len; } text;      ///< Text data (position + arena offset + length).
         struct { f32 x; f32 y; u32 imageIndex; } image;       ///< DrawImage data.
         struct { Rect rect; } clip;                           ///< SetClip data.
+        struct { u32 matrixOffset; } transform;               ///< SetTransform data (arena offset).
 
         Data() : fill{{}} {}
     } data;                 ///< Per-operation payload (16 bytes).
@@ -186,6 +200,13 @@ public:
 
     /// @brief Record a clear-clip operation.
     void clearClip();
+
+    /// @brief Record a set-transform operation.
+    /// @param m The transformation matrix.
+    void setTransform(const Matrix& m);
+
+    /// @brief Record a clear-transform operation.
+    void clearTransform();
 
     /// @brief Finish recording and produce an immutable Recording.
     /// @return Unique pointer to the completed Recording.

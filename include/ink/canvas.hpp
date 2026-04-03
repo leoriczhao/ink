@@ -6,6 +6,7 @@
  */
 
 #include "ink/types.hpp"
+#include "ink/matrix.hpp"
 #include <string_view>
 #include <vector>
 #include <memory>
@@ -73,10 +74,29 @@ public:
     /// @param r The clipping rectangle.
     void clipRect(Rect r);
 
+    /// @brief Translate the current transform.
+    void translate(f32 dx, f32 dy);
+
+    /// @brief Rotate the current transform.
+    void rotate(f32 radians);
+
+    /// @brief Scale the current transform.
+    void scale(f32 sx, f32 sy);
+
+    /// @brief Post-concatenate a matrix onto the current transform.
+    void concat(const Matrix& m);
+
+    /// @brief Replace the current transform with the given matrix.
+    void setMatrix(const Matrix& m);
+
+    /// @brief Return the current transform matrix.
+    Matrix getMatrix() const;
+
 private:
     struct State {
         bool hasClip = false;
         Rect clip = {};
+        Matrix transform;
     };
 
     Device* device_ = nullptr;
@@ -84,6 +104,7 @@ private:
     State current_;
 
     void applyClip();
+    void applyTransform();
 };
 
 }
