@@ -7,6 +7,7 @@
 
 #include "ink/types.hpp"
 #include "ink/matrix.hpp"
+#include "ink/paint.hpp"
 #include <string_view>
 #include <vector>
 #include <memory>
@@ -88,7 +89,9 @@ private:
 /// @brief Compact draw operation structure (28 bytes).
 struct CompactDrawOp {
     DrawOp::Type type;      ///< Operation type (1 byte).
-    u8 padding[3];          ///< Alignment padding (3 bytes).
+    BlendMode blendMode = BlendMode::SrcOver;  ///< Blend mode (1 byte).
+    u8 opacity = 255;                          ///< Opacity 0-255 (1 byte).
+    u8 reserved = 0;                           ///< Reserved (1 byte).
     Color color;            ///< Draw color (4 bytes).
     f32 width;              ///< Line/stroke width (4 bytes).
 
@@ -207,6 +210,36 @@ public:
 
     /// @brief Record a clear-transform operation.
     void clearTransform();
+
+    // --- Paint-based overloads ---
+
+    /// @brief Record a fill-rectangle operation using a Paint.
+    /// @param r Rectangle to fill.
+    /// @param p Paint describing style, color, blend, opacity.
+    void fillRect(Rect r, const Paint& p);
+
+    /// @brief Record a stroke-rectangle operation using a Paint.
+    /// @param r Rectangle to stroke.
+    /// @param p Paint describing style, color, blend, opacity.
+    void strokeRect(Rect r, const Paint& p);
+
+    /// @brief Record a line-drawing operation using a Paint.
+    /// @param p1 Start point.
+    /// @param p2 End point.
+    /// @param p Paint describing style, color, blend, opacity.
+    void drawLine(Point p1, Point p2, const Paint& p);
+
+    /// @brief Record a polyline-drawing operation using a Paint.
+    /// @param pts Array of vertices.
+    /// @param count Number of points.
+    /// @param p Paint describing style, color, blend, opacity.
+    void drawPolyline(const Point* pts, i32 count, const Paint& p);
+
+    /// @brief Record a text-drawing operation using a Paint.
+    /// @param pos Position of the text baseline.
+    /// @param text UTF-8 text to draw.
+    /// @param p Paint describing style, color, blend, opacity.
+    void drawText(Point pos, std::string_view text, const Paint& p);
 
     /// @brief Finish recording and produce an immutable Recording.
     /// @return Unique pointer to the completed Recording.

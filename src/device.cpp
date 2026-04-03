@@ -11,24 +11,24 @@ void Device::endFrame() {
     recording_ = recorder_.finish();
 }
 
-void Device::fillRect(Rect r, Color c) {
-    recorder_.fillRect(r, c);
+void Device::fillRect(Rect r, const Paint& paint) {
+    recorder_.fillRect(r, paint);
 }
 
-void Device::strokeRect(Rect r, Color c, f32 width) {
-    recorder_.strokeRect(r, c, width);
+void Device::strokeRect(Rect r, const Paint& paint) {
+    recorder_.strokeRect(r, paint);
 }
 
-void Device::drawLine(Point p1, Point p2, Color c, f32 width) {
-    recorder_.drawLine(p1, p2, c, width);
+void Device::drawLine(Point p1, Point p2, const Paint& paint) {
+    recorder_.drawLine(p1, p2, paint);
 }
 
-void Device::drawPolyline(const Point* pts, i32 count, Color c, f32 width) {
-    recorder_.drawPolyline(pts, count, c, width);
+void Device::drawPolyline(const Point* pts, i32 count, const Paint& paint) {
+    recorder_.drawPolyline(pts, count, paint);
 }
 
-void Device::drawText(Point p, std::string_view text, Color c) {
-    recorder_.drawText(p, text, c);
+void Device::drawText(Point p, std::string_view text, const Paint& paint) {
+    recorder_.drawText(p, text, paint);
 }
 
 void Device::drawImage(std::shared_ptr<Image> image, f32 x, f32 y) {

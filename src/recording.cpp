@@ -71,30 +71,30 @@ const Image* Recording::getImage(u32 index) const {
 void Recording::dispatchOp(const CompactDrawOp& op, DrawOpVisitor& visitor) const {
     switch (op.type) {
         case DrawOp::Type::FillRect:
-            visitor.visitFillRect(op.data.fill.rect, op.color);
+            visitor.visitFillRect(op.data.fill.rect, op.color, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::StrokeRect:
-            visitor.visitStrokeRect(op.data.stroke.rect, op.color, op.width);
+            visitor.visitStrokeRect(op.data.stroke.rect, op.color, op.width, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::Line:
-            visitor.visitLine(op.data.line.p1, op.data.line.p2, op.color, op.width);
+            visitor.visitLine(op.data.line.p1, op.data.line.p2, op.color, op.width, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::Polyline:
             visitor.visitPolyline(
                 arena_.getPoints(op.data.polyline.offset),
                 static_cast<i32>(op.data.polyline.count),
-                op.color, op.width);
+                op.color, op.width, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::Text:
             visitor.visitText(
                 op.data.text.pos,
                 arena_.getString(op.data.text.offset),
-                op.data.text.len, op.color);
+                op.data.text.len, op.color, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::DrawImage:
             visitor.visitDrawImage(
                 getImage(op.data.image.imageIndex),
-                op.data.image.x, op.data.image.y);
+                op.data.image.x, op.data.image.y, op.blendMode, op.opacity);
             break;
         case DrawOp::Type::SetClip:
             visitor.visitSetClip(op.data.clip.rect);
@@ -211,6 +211,65 @@ void Recorder::setTransform(const Matrix& m) {
 void Recorder::clearTransform() {
     CompactDrawOp op{};
     op.type = DrawOp::Type::ClearTransform;
+    ops_.push_back(op);
+}
+
+// --- Paint-based overloads ---
+
+void Recorder::fillRect(Rect r, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::FillRect;
+    op.color = p.color;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.fill.rect = r;
+    ops_.push_back(op);
+}
+
+void Recorder::strokeRect(Rect r, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::StrokeRect;
+    op.color = p.color;
+    op.width = p.strokeWidth;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.stroke.rect = r;
+    ops_.push_back(op);
+}
+
+void Recorder::drawLine(Point p1, Point p2, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::Line;
+    op.color = p.color;
+    op.width = p.strokeWidth;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.line.p1 = p1;
+    op.data.line.p2 = p2;
+    ops_.push_back(op);
+}
+
+void Recorder::drawPolyline(const Point* pts, i32 count, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::Polyline;
+    op.color = p.color;
+    op.width = p.strokeWidth;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.polyline.offset = arena_.storePoints(pts, count);
+    op.data.polyline.count = static_cast<u32>(count);
+    ops_.push_back(op);
+}
+
+void Recorder::drawText(Point pos, std::string_view text, const Paint& p) {
+    CompactDrawOp op{};
+    op.type = DrawOp::Type::Text;
+    op.color = p.color;
+    op.blendMode = p.blendMode;
+    op.opacity = u8(p.opacity * 255);
+    op.data.text.pos = pos;
+    op.data.text.offset = arena_.storeString(text);
+    op.data.text.len = static_cast<u32>(text.size());
     ops_.push_back(op);
 }
 

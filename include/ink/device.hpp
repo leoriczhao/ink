@@ -7,6 +7,7 @@
 
 #include "ink/types.hpp"
 #include "ink/matrix.hpp"
+#include "ink/paint.hpp"
 #include "ink/recording.hpp"
 #include <memory>
 
@@ -32,64 +33,29 @@ public:
     /// @brief End the current frame recording.
     void endFrame();
 
-    /// @name Drawing commands
+    /// @name Drawing commands (Paint-based)
     /// @{
 
-    /// @brief Fill a rectangle with a solid color.
-    /// @param r The rectangle to fill.
-    /// @param c Fill color.
-    void fillRect(Rect r, Color c);
-
-    /// @brief Stroke a rectangle outline.
-    /// @param r The rectangle to stroke.
-    /// @param c Stroke color.
-    /// @param width Stroke line width (default 1.0).
-    void strokeRect(Rect r, Color c, f32 width = 1.0f);
-
-    /// @brief Draw a line between two points.
-    /// @param p1 Start point.
-    /// @param p2 End point.
-    /// @param c Line color.
-    /// @param width Line width (default 1.0).
-    void drawLine(Point p1, Point p2, Color c, f32 width = 1.0f);
-
-    /// @brief Draw a connected series of line segments.
-    /// @param pts Array of vertices.
-    /// @param count Number of points.
-    /// @param c Line color.
-    /// @param width Line width (default 1.0).
-    void drawPolyline(const Point* pts, i32 count, Color c, f32 width = 1.0f);
-
-    /// @brief Draw text at the given position.
-    /// @param p Position of the text baseline.
-    /// @param text UTF-8 text to draw.
-    /// @param c Text color.
-    void drawText(Point p, std::string_view text, Color c);
-
-    /// @brief Draw an image at the given position (alpha-blended).
-    /// @param image Shared pointer to the image.
-    /// @param x X position.
-    /// @param y Y position.
+    void fillRect(Rect r, const Paint& paint);
+    void strokeRect(Rect r, const Paint& paint);
+    void drawLine(Point p1, Point p2, const Paint& paint);
+    void drawPolyline(const Point* pts, i32 count, const Paint& paint);
+    void drawText(Point p, std::string_view text, const Paint& paint);
     void drawImage(std::shared_ptr<Image> image, f32 x, f32 y);
 
     /// @}
 
     /// @brief Set the current clip rectangle.
-    /// @param r The clipping rectangle.
     void setClipRect(Rect r);
-
     /// @brief Clear the current clip rectangle.
     void resetClip();
 
     /// @brief Set the current transformation matrix.
-    /// @param m The transformation matrix.
     void setTransform(const Matrix& m);
-
-    /// @brief Clear the current transformation matrix (reset to identity).
+    /// @brief Clear the current transformation matrix.
     void clearTransform();
 
     /// @brief Finish recording and return the immutable Recording.
-    /// @return Unique pointer to the completed Recording.
     std::unique_ptr<Recording> finishRecording();
 
 private:
