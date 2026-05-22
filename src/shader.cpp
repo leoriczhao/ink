@@ -14,6 +14,10 @@ static u8 clampU8(i32 v) {
   return static_cast<u8>(v < 0 ? 0 : (v > 255 ? 255 : v));
 }
 
+static u8 roundClampU8(f32 v) {
+  return clampU8(static_cast<i32>(std::lround(v)));
+}
+
 static f32 applyTileMode(f32 t, TileMode mode) {
   switch (mode) {
   case TileMode::Clamp:
@@ -34,10 +38,10 @@ static f32 applyTileMode(f32 t, TileMode mode) {
 static Color lerpColor(Color a, Color b, f32 t) {
   f32 s = 1.0f - t;
   return {
-      clampU8(static_cast<i32>(a.r * s + b.r * t + 0.5f)),
-      clampU8(static_cast<i32>(a.g * s + b.g * t + 0.5f)),
-      clampU8(static_cast<i32>(a.b * s + b.b * t + 0.5f)),
-      clampU8(static_cast<i32>(a.a * s + b.a * t + 0.5f)),
+      roundClampU8(a.r * s + b.r * t),
+      roundClampU8(a.g * s + b.g * t),
+      roundClampU8(a.b * s + b.b * t),
+      roundClampU8(a.a * s + b.a * t),
   };
 }
 
