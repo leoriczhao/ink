@@ -4,8 +4,8 @@
 // TODO: Implement Vulkan backend
 
 #include "ink/gpu/vk/vk_context.hpp"
-#include "ink/gpu/gpu_context.hpp"
 #include "gpu_impl.hpp"
+#include "ink/gpu/gpu_context.hpp"
 
 namespace ink {
 
@@ -15,10 +15,10 @@ namespace ink {
 namespace GpuContexts {
 
 std::shared_ptr<GpuContext> MakeVulkan() {
-    // TODO: Implement
-    // auto impl = makeVulkanGpuImpl();
-    // return GpuImpl::createContext(std::move(impl));
-    return nullptr;
+  // TODO: Implement
+  // auto impl = makeVulkanGpuImpl();
+  // return GpuImpl::createContext(std::move(impl));
+  return nullptr;
 }
 
 } // namespace GpuContexts

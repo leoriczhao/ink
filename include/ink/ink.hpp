@@ -3,60 +3,54 @@
 /**
  * @file ink.hpp
  * @brief Convenience header that includes the entire ink public API.
- *
- * Ink - A lightweight 2D rendering library
- *
- * Usage:
- *
- *   // CPU rendering
- *   #include <ink/ink.hpp>
- *   auto surface = ink::Surface::MakeRaster(800, 600);
- *   surface->canvas()->fillRect({0, 0, 100, 100}, {255, 0, 0, 255});
- *   surface->flush();
- *
- *   // GPU rendering (requires #include <ink/gpu/gl/gl_context.hpp>)
- *   auto ctx = ink::GpuContexts::MakeGL();
- *   auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
- *   surface->canvas()->fillRect({0, 0, 100, 100}, {255, 0, 0, 255});
- *   surface->flush();
  */
 
 // Version
 #include "ink/version.hpp"
 
 // Core types
-#include "ink/types.hpp"
 #include "ink/matrix.hpp"
 #include "ink/paint.hpp"
+#include "ink/types.hpp"
+
+// Path
+#include "ink/path.hpp"
+#include "ink/path_effect.hpp"
 
 // Pixel data
-#include "ink/pixmap.hpp"
 #include "ink/pixel_data.hpp"
+#include "ink/pixmap.hpp"
 
-// Image (immutable pixel snapshot)
+// Image
 #include "ink/image.hpp"
 
+// Shaders and filters
+#include "ink/color_filter.hpp"
+#include "ink/shader.hpp"
+
 // Recording and commands
-#include "ink/recording.hpp"
 #include "ink/draw_op_visitor.hpp"
 #include "ink/draw_pass.hpp"
+#include "ink/recording.hpp"
 
-// Device (recording device)
+// Device
 #include "ink/device.hpp"
 
-// Canvas (user-facing drawing API)
+// Canvas
 #include "ink/canvas.hpp"
 
-// GPU context (abstract)
+// GPU context
 #include "ink/gpu/gpu_context.hpp"
 
-// GL context factory (conditional - include <ink/gpu/gl/gl_context.hpp> explicitly)
 #if INK_HAS_GL
 #include "ink/gpu/gl/gl_context.hpp"
 #endif
 
-// Surface (top-level rendering target)
+// Surface
 #include "ink/surface.hpp"
 
-// Text rendering
+// Text
+#include "ink/font.hpp"
 #include "ink/glyph_cache.hpp"
+#include "ink/text_blob.hpp"
+#include "ink/typeface.hpp"

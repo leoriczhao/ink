@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0] - 2026-04-25
+
+### Added
+- **Path API**: `Path` with move, line, quad, cubic, conic, close, relative commands, transforms, bounds, contains, direction, and convexity checks.
+- **Path builders**: `addRect`, `addOval`, `addCircle`, `addRoundRect`, `addArc`, `addPoly`, and `addPath`.
+- **Path rendering**: `Canvas::drawPath`, `Device::drawPath`, `Recorder::fillPath`, and `Recorder::strokePath`.
+- **CPU path rasterizer**: Flattened curve rendering with winding/even-odd fill rules and optional supersampled antialiasing.
+- **Stroke engine**: Stroke-to-fill conversion with butt/round/square caps, miter/round/bevel joins, and miter limit.
+- **Path effects**: `PathEffect` abstraction and dash effect factory via `PathEffects::MakeDash`.
+- **Path clipping**: `Canvas::clipPath` and `Recorder::setClipPath` with CPU clip-mask support.
+- **GL path rendering**: Solid filled and stroked paths use stencil-and-cover rendering on OpenGL; `clipPath` writes directly into the GL stencil buffer. Shader-backed path fills keep the CPU texture fallback until GL shader generation lands.
+
+### Changed
+- Paint now carries optional shader, color filter, path effect, stroke cap/join, antialiasing, and image filter quality fields.
+- DrawOpVisitor and Recording now support path draw ops, path clip ops, image-rect draw ops, shaders, and color filters.
+- GL vertex paths now apply the current Canvas matrix before batching.
+
 ## [0.2.0] - 2026-04-03
 
 ### Added

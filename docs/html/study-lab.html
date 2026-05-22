@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览 - 练习实验室</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>5. 练习实验室</strong>
+        <span>把读懂变成可验证行为</span>
+      </div>
+      <nav class="side-nav">
+        <a href="index.html">0. 总览</a>
+        <a href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a href="path-rendering.html">3. Path 渲染</a>
+        <a href="renderer-backends.html">4. Renderer / 后端</a>
+        <a class="current" href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        本页目标: 给出能实际跑、实际改、实际验证的小任务。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero narrow">
+        <div class="wrap">
+          <div class="kicker">hands-on source study</div>
+          <h1>用 9 个小实验学会 ink</h1>
+          <p class="lead">
+            读源码如果没有可验证目标，很容易变成“看过”。下面的任务都很小，每个任务都对应明确文件、要观察的现象和验证命令。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>准备工作</h2>
+          <div class="grid two">
+            <div class="card flat">
+              <h3>构建测试</h3>
+              <pre><code>cmake -B build -DINK_BUILD_TESTS=ON
+cmake --build build
+ctest --test-dir build --output-on-failure</code></pre>
+            </div>
+            <div class="card flat">
+              <h3>推荐读法</h3>
+              <ol>
+                <li>先打开本页任务。</li>
+                <li>按行号读源码，不急着改。</li>
+                <li>写一个很小的测试或临时日志。</li>
+                <li>跑指定测试，确认你的模型对不对。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>工作区提示:</strong>
+            当前仓库已有未提交改动。做实验时不要随手格式化无关文件，也不要重置已有改动。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>阶段 A: 建立调用链模型</h2>
+          <div class="grid three">
+            <div class="card flat">
+              <h3>实验 1: 证明 draw 不立即写像素</h3>
+              <p>目标文件: <span class="source">tests/test_surface.cpp</span> 或新建一个 focused test。</p>
+              <ul>
+                <li>创建 raster surface。</li>
+                <li><code>beginFrame</code> 后画一个 red rect。</li>
+                <li>在 <code>endFrame</code> 后、<code>flush</code> 前检查中心像素。</li>
+                <li>再 <code>flush</code>，检查像素变红。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 2: 打印 Recording ops</h3>
+              <p>目标文件: <span class="source">tests/test_recording.cpp</span>。</p>
+              <ul>
+                <li>用 <code>Recorder</code> 手工记录 fillRect、setClip、drawLine。</li>
+                <li>检查 <code>ops().size()</code> 和每个 <code>DrawOp::Type</code>。</li>
+                <li>确认 string/path/image 不直接塞进 op。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 3: 追踪 save/restore</h3>
+              <p>目标文件: <span class="source">tests/test_canvas.cpp</span> 或 <span class="source">tests/test_transform.cpp</span>。</p>
+              <ul>
+                <li>构造 translate + save + clip + restore。</li>
+                <li>检查 recording 里是否出现 ClearTransform / SetTransform / ClearClip。</li>
+                <li>解释为什么 restore 不是单纯 pop C++ stack。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>阶段 B: 建立命令排序模型</h2>
+          <div class="grid three">
+            <div class="card flat">
+              <h3>实验 4: 画出 DrawPass sorted indices</h3>
+              <p>目标文件: <span class="source">tests/test_draw_pass.cpp</span>。</p>
+              <ul>
+                <li>构造 6 个 op: fill、line、clip、fill、clearClip、line。</li>
+                <li>打印原始 index 与 sorted index。</li>
+                <li>解释哪些移动是 batching，哪些边界不能跨。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 5: 设计一个 alpha 排序反例</h3>
+              <p>目标文件: <span class="source">tests/test_draw_pass.cpp</span> 或 <span class="source">tests/test_blend.cpp</span>。</p>
+              <ul>
+                <li>两个半透明 rect，颜色不同，位置重叠。</li>
+                <li>交换绘制顺序，比较像素。</li>
+                <li>思考 DrawPass 同组内按 type/color 排序是否永远安全。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 6: 新增一个最小 DrawOp 的清单</h3>
+              <p>不一定真改，实现前先列改动面。</p>
+              <ul>
+                <li>enum。</li>
+                <li><code>CompactDrawOp::Data</code>。</li>
+                <li><code>Recorder</code> 方法。</li>
+                <li><code>Recording::dispatchOp</code>。</li>
+                <li><code>DrawOpVisitor</code>。</li>
+                <li>CPU/GL/Metal visitor。</li>
+                <li>测试。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>阶段 C: 建立 Path 到像素模型</h2>
+          <div class="grid three">
+            <div class="card flat">
+              <h3>实验 7: 观察 fill rule</h3>
+              <p>目标文件: <span class="source">tests/test_path.cpp</span>。</p>
+              <ul>
+                <li>构造两个同心 rect 或 circle。</li>
+                <li>默认 Winding 下检查中心点。</li>
+                <li>EvenOdd 下再检查中心点。</li>
+                <li>把测试和 <code>fillScanline</code> 的 winding 变量对应起来。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 8: 让 rasterizer 输出交点</h3>
+              <p>临时调试，不建议提交日志。</p>
+              <ul>
+                <li>给一个三角形 path。</li>
+                <li>在 <code>fillScanline</code> 里打印某一行的 x intersections。</li>
+                <li>手算这条 scanline 应该填充的 x 范围。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>实验 9: 验证 stroke-to-fill</h3>
+              <p>目标文件: <span class="source">tests/test_path.cpp</span>。</p>
+              <ul>
+                <li>调用 <code>StrokeEngine::strokePath</code> 生成 stroked path。</li>
+                <li>检查输出 path 不为空。</li>
+                <li>尝试 Butt/Round/Square cap，看 points/verbs 数量变化。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>一个适合上手的小修复: 接通 CPU path ColorFilter</h2>
+          <p class="section-lead">
+            这个修复足够小，又能迫使你理解 Paint -> Recording -> Dispatch -> Renderer 的完整链路。
+          </p>
+
+          <div class="flow">
+            <div class="node">
+              <strong>Paint</strong>
+              <span><code>paint.colorFilter</code> 已存在。</span>
+            </div>
+            <div class="node">
+              <strong>Recording</strong>
+              <span><code>colorFilterIndex</code> 已记录。</span>
+            </div>
+            <div class="node">
+              <strong>Dispatch</strong>
+              <span>visitor 参数已经带 <code>ColorFilter*</code>。</span>
+            </div>
+            <div class="node">
+              <strong>CpuRenderer</strong>
+              <span>当前 path visitor 忽略了这个参数。</span>
+            </div>
+            <div class="node">
+              <strong>Test</strong>
+              <span>用 matrix filter 验证颜色被改变。</span>
+            </div>
+          </div>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// 当前事实: src/cpu_renderer.hpp:303-305</span>
+void visitFillPath(const Path &amp;path, Color color, BlendMode blend,
+                   u8 opacity, u8 fillRule, bool antiAlias,
+                   const Shader *shader,
+                   const ColorFilter *) override {
+  ...
+}</code></pre>
+            <div class="reader-task">
+              <h3>实现方向</h3>
+              <ol>
+                <li>让 <code>PathRasterizer::rasterize</code> 接收可选 <code>ColorFilter*</code>。</li>
+                <li>在 shader/color 产出后、coverage alpha 应用前或后，明确选择过滤顺序。</li>
+                <li>为纯 color fill 和 shader fill 各加一个测试。</li>
+                <li>确认 GL path texture fallback 是否也要传递 filter。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>先定语义:</strong>
+            ColorFilter 应该作用在 shader 结果之后、blend 之前。这是一个语义选择，不是机械加函数调用。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>读源码顺序清单</h2>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>顺序</th>
+                <th>文件</th>
+                <th>读完应该能回答</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><span class="source">src/surface.cpp</span></td>
+                <td>一帧的提交点在哪里？哪个函数真正调用 renderer？</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td><span class="source">src/canvas.cpp</span>, <span class="source">src/device.cpp</span></td>
+                <td>Canvas 状态如何被记录成 op？pathEffect 在哪里应用？</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td><span class="source">include/ink/recording.hpp</span>, <span class="source">src/recording.cpp</span></td>
+                <td>一个 op 怎么存数据？dispatch 如何恢复参数？</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td><span class="source">src/draw_pass.cpp</span></td>
+                <td>排序 key 的每一段表达什么语义？</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td><span class="source">include/ink/path.hpp</span>, <span class="source">src/path.cpp</span></td>
+                <td>Path 如何表达多个 contour、fill rule、bounds、contains？</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td><span class="source">src/path_rasterizer.hpp</span>, <span class="source">src/stroke.hpp</span></td>
+                <td>曲线如何变成边？coverage 如何写到像素？stroke 如何变 fill？</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td><span class="source">src/cpu_renderer.hpp</span></td>
+                <td>visitor 方法如何把 op 执行为 CPU 像素？</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td><span class="source">src/gpu/gl/gl_context.cpp</span>, <span class="source">src/gpu/gl/gl_resources.hpp</span></td>
+                <td>同一个 op 如何变成 GL state、vertex batch、stencil、texture？</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a href="renderer-backends.html">← 上一章: Renderer / 后端</a>
+        <a href="index.html">回到总览 →</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览 - 一帧生命周期</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>1. 一帧生命周期</strong>
+        <span>Surface -> Canvas -> Renderer</span>
+      </div>
+      <nav class="side-nav">
+        <a href="index.html">0. 总览</a>
+        <a class="current" href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a href="path-rendering.html">3. Path 渲染</a>
+        <a href="renderer-backends.html">4. Renderer / 后端</a>
+        <a href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        本页目标: 证明 draw 调用先记录，flush 后才执行。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero narrow">
+        <div class="wrap">
+          <div class="kicker">frame pipeline</div>
+          <h1>一帧的真实生命周期</h1>
+          <p class="lead">
+            读 ink 的第一个动作，是把“画图函数”从“立即执行”这个直觉里拿出来。这里的一帧是一次命令缓冲构建和提交。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>入口: Surface 拥有整条链路</h2>
+          <p class="section-lead">
+            <code>Surface</code> 构造时拿到一个 <code>Renderer</code>，自己持有 <code>Device</code>，再创建指向这个 Device 的 <code>Canvas</code>。
+            所以你可以把 Surface 看成“前端命令构建器 + 后端执行器”的拥有者。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/surface.cpp:11-15</span>
+Surface::Surface(std::shared_ptr&lt;Renderer&gt; renderer,
+                 std::unique_ptr&lt;Pixmap&gt; pixmap)
+    : device_(),
+      renderer_(std::move(renderer)),
+      pixmap_(std::move(pixmap)) {
+    canvas_ = std::make_unique&lt;Canvas&gt;(&amp;device_);
+}</code></pre>
+            <div class="reader-task">
+              <h3>阅读任务</h3>
+              <ol>
+                <li>先看 <a class="source" href="../../include/ink/surface.hpp">include/ink/surface.hpp:29</a> 的成员声明。</li>
+                <li>确认 <code>Surface::MakeRaster</code> 创建 <code>CpuRenderer</code> 和 <code>Pixmap</code>。</li>
+                <li>确认 <code>Surface::MakeGpu</code> 在 context 无效时回退到 raster。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>结论:</strong>
+            <code>Canvas</code> 不拥有像素，也不拥有 GPU 资源。它只是通往 <code>Device</code> 的用户侧 API。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>四阶段帧协议</h2>
+          <p class="section-lead">
+            这四个函数共同定义了 ink 的帧协议。真正的执行点是 <code>flush()</code>，不是 draw 调用，也不是 <code>endFrame()</code>。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/surface.cpp:57-74</span>
+void Surface::beginFrame(Color clearColor) {
+    device_.beginFrame();
+    if (renderer_) {
+        renderer_-&gt;beginFrame(clearColor);
+    }
+}
+
+void Surface::endFrame() {
+    device_.endFrame();
+}
+
+void Surface::flush() {
+    auto recording = device_.finishRecording();
+    if (!recording || !renderer_) return;
+
+    DrawPass pass = DrawPass::create(*recording);
+    renderer_-&gt;execute(*recording, pass);
+    renderer_-&gt;endFrame();
+}</code></pre>
+            <div class="reader-task">
+              <h3>逐行解释</h3>
+              <ol>
+                <li><code>beginFrame</code>: 清空旧 recorder，同时让 renderer 清屏。</li>
+                <li><code>endFrame</code>: 只把 recorder 封成 recording，不执行。</li>
+                <li><code>flush</code>: 取走 recording，生成 DrawPass，调用 renderer。</li>
+                <li><code>renderer-&gt;endFrame</code>: 在 execute 后调用，GL 后端会 flush batch。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="checkpoint">
+            <div class="check"><strong>检查点:</strong> 在 <code>endFrame()</code> 后、<code>flush()</code> 前读 raster surface 的 pixels，理论上还看不到新绘制结果。</div>
+            <div class="check"><strong>检查点:</strong> <code>MakeRecording()</code> 创建的是没有 renderer 的 surface，所以 <code>flush()</code> 会直接返回。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Canvas 是 facade，不是 rasterizer</h2>
+          <p class="section-lead">
+            Canvas 的简单 draw API 只是把颜色参数包成 <code>Paint</code>，然后转给 Device。这里没有 pixel loop，也没有 GL draw call。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/canvas.cpp:10-17, 63-64</span>
+void Canvas::fillRect(Rect r, Color c) {
+  device_-&gt;fillRect(r, Paint::Fill(c));
+}
+
+void Canvas::drawLine(Point p1, Point p2, Color c, f32 width) {
+  device_-&gt;drawLine(p1, p2, Paint::Stroke(c, width));
+}
+
+void Canvas::drawPath(const Path &amp;path, const Paint &amp;paint) {
+  device_-&gt;drawPath(path, paint);
+}</code></pre>
+            <div class="reader-task">
+              <h3>读法</h3>
+              <ol>
+                <li>看到 Canvas 的 draw 函数，下一跳总是 <code>Device</code>。</li>
+                <li>如果涉及状态，先看 <code>current_</code> 和 <code>stack_</code>。</li>
+                <li>如果涉及像素，直接跳到具体 Renderer visitor。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>容易误解:</strong>
+            <code>Canvas::clipPath</code> 会立即记录一个 clip op，但 clip 的实际几何实现仍在 renderer。CPU 生成 mask，GL 写 stencil。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Canvas 状态如何变成命令</h2>
+          <p class="section-lead">
+            <code>save/restore</code> 只在 Canvas 本地保存状态；每次恢复后，Canvas 会重新把 transform/clip 状态发给 Device，Device 再记录成 op。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/canvas.cpp:82-90, 143-163</span>
+void Canvas::restore() {
+  if (stack_.empty())
+    return;
+  current_ = stack_.back();
+  stack_.pop_back();
+  applyTransform();
+  applyClip();
+}
+
+void Canvas::applyClip() {
+  if (current_.hasClip || !current_.pathClips.empty()) {
+    device_-&gt;resetClip();
+  }
+  if (current_.hasClip) {
+    device_-&gt;setClipRect(current_.clip);
+  }
+  for (const auto &amp;path : current_.pathClips) {
+    device_-&gt;setClipPath(path);
+  }
+}
+
+void Canvas::applyTransform() {
+  if (current_.transform.isIdentity()) {
+    device_-&gt;clearTransform();
+  } else {
+    device_-&gt;setTransform(current_.transform);
+  }
+}</code></pre>
+            <div class="reader-task">
+              <h3>要验证什么</h3>
+              <ol>
+                <li><code>restore()</code> 可能记录多个 op，而不是只改一个 C++ struct。</li>
+                <li><code>applyClip()</code> 会先 <code>resetClip()</code> 再重放当前 clip 列表。</li>
+                <li>这解释了为什么 DrawPass 必须把 clip/transform 当作 group boundary。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Renderer 接口是执行边界</h2>
+          <p class="section-lead">
+            所有后端都要实现同一个 <code>Renderer</code> 接口。CPU renderer 的 <code>execute</code> 是 visitor 分发；GL 后端也是 visitor 分发，只是 visitor 方法内部变成 GL 状态和 draw call。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// include/ink/renderer.hpp:25-52</span>
+class Renderer {
+public:
+    virtual ~Renderer() = default;
+    virtual void beginFrame(Color clearColor) = 0;
+    virtual void endFrame() = 0;
+    virtual void execute(const Recording&amp; recording,
+                         const DrawPass&amp; pass) = 0;
+    virtual void resize(i32 w, i32 h) = 0;
+    virtual std::shared_ptr&lt;Image&gt; makeSnapshot() const = 0;
+    virtual void setGlyphCache(GlyphCache* cache) { (void)cache; }
+};</code></pre>
+            <div class="reader-task">
+              <h3>下一步</h3>
+              <ol>
+                <li>读 <a class="source" href="recording-drawpass.html">Recording / DrawPass</a>，搞清楚 execute 收到的是什么。</li>
+                <li>再读 <a class="source" href="renderer-backends.html">Renderer / 后端</a>，对比 CPU 和 GL visitor。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a href="index.html">← 总览</a>
+        <a href="recording-drawpass.html">下一章: Recording / DrawPass →</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

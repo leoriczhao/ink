@@ -44,12 +44,8 @@ GPU Rendering
 .. code-block:: cpp
 
    #include <ink/ink.hpp>
-
-   // Auto-select: tries GPU first, falls back to CPU
-   auto surface = ink::Surface::MakeAuto(800, 600);
-
-   // Or explicitly create a GPU surface with a shared context
    #include <ink/gpu/gl/gl_context.hpp>
+
    auto ctx = ink::GpuContexts::MakeGL();
    auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
 
@@ -63,6 +59,36 @@ GPU Rendering
 
    // GPU snapshots produce GPU-backed images (no readback)
    auto snapshot = surface->makeSnapshot();
+
+Paths, Clipping, and Dash Effects
+---------------------------------
+
+.. code-block:: cpp
+
+   ink::Path path;
+   path.moveTo(100, 100)
+       .cubicTo(160, 20, 260, 180, 320, 100)
+       .lineTo(320, 240)
+       .lineTo(100, 240)
+       .close();
+
+   ink::Paint fill = ink::Paint::Fill({40, 120, 220, 255});
+   fill.antiAlias = true;
+
+   surface->beginFrame();
+   auto* canvas = surface->canvas();
+   canvas->save();
+   canvas->clipPath(path);
+   canvas->fillRect({0, 0, 800, 600}, {245, 245, 245, 255});
+   canvas->restore();
+   canvas->drawPath(path, fill);
+
+   ink::Paint stroke = ink::Paint::Stroke({255, 255, 255, 255}, 4.0f);
+   float dash[] = {12.0f, 6.0f};
+   stroke.pathEffect = ink::PathEffects::MakeDash(dash, 2);
+   canvas->drawPath(path, stroke);
+   surface->endFrame();
+   surface->flush();
 
 Multi-layer Compositing
 -----------------------

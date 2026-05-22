@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览 - Recording / DrawPass</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>2. Recording / DrawPass</strong>
+        <span>命令缓冲与排序语义</span>
+      </div>
+      <nav class="side-nav">
+        <a href="index.html">0. 总览</a>
+        <a href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a class="current" href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a href="path-rendering.html">3. Path 渲染</a>
+        <a href="renderer-backends.html">4. Renderer / 后端</a>
+        <a href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        本页目标: 看懂一条 draw command 如何存储、排序、分发。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero narrow">
+        <div class="wrap">
+          <div class="kicker">command buffer</div>
+          <h1>Recording 是 ink 的核心数据结构</h1>
+          <p class="lead">
+            如果只读 Canvas API，你会错过 ink 最重要的抽象。真正连接前端 API 和后端 renderer 的，是 <code>CompactDrawOp</code>、arena、side tables 和 <code>DrawPass</code>。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>CompactDrawOp: 小字段 inline，大数据外置</h2>
+          <p class="section-lead">
+            <code>CompactDrawOp</code> 是一个 compact command。它直接保存 type、blend、opacity、flags、color、width；变长或大对象通过 offset/index 指到 arena 或 side tables。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// include/ink/recording.hpp:73-134</span>
+struct CompactDrawOp {
+  DrawOp::Type type;
+  BlendMode blendMode = BlendMode::SrcOver;
+  u8 opacity = 255;
+  u8 flags = 0x20;              <span class="dim">// cap / join / fillRule / AA / filterQuality</span>
+  Color color;
+  f32 width;
+  u16 shaderIndex = 0xFFFF;
+  u16 colorFilterIndex = 0xFFFF;
+
+  union Data {
+    struct { Rect rect; } fill;
+    struct { Point p1; Point p2; } line;
+    struct { u32 offset; u32 count; } polyline;
+    struct { Point pos; u32 offset; u32 len; } text;
+    struct { u32 pathIndex; f32 miterLimit; } path;
+    struct { u32 imageIndex; u32 arenaOffset; } imageRect;
+  } data;
+};</code></pre>
+            <div class="reader-task">
+              <h3>读代码时看这三件事</h3>
+              <ol>
+                <li>这个 op 的固定字段能不能装下全部参数？</li>
+                <li>装不下时，是进 arena，还是进 paths/images/shaders side table？</li>
+                <li>最终 dispatch 时，如何把 offset/index 还原成 visitor 参数？</li>
+              </ol>
+            </div>
+          </div>
+
+          <table class="table" style="margin-top:18px">
+            <thead>
+              <tr>
+                <th>数据类型</th>
+                <th>存放位置</th>
+                <th>例子</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>小标量</td>
+                <td>直接在 <code>CompactDrawOp</code></td>
+                <td>color、width、blendMode、opacity、flags</td>
+              </tr>
+              <tr>
+                <td>变长 bytes</td>
+                <td><code>DrawOpArena</code></td>
+                <td>string、points、matrix、roundRect、rect pair</td>
+              </tr>
+              <tr>
+                <td>对象引用</td>
+                <td>side tables</td>
+                <td>images、paths、shaders、colorFilters</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Recorder 如何把 Paint 压进 op</h2>
+          <p class="section-lead">
+            <code>Paint</code> 不是临时参数。Recorder 会把它拆成 compact 字段，并把 shader / colorFilter 保存到 side tables。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/recording.cpp:255-263</span>
+void Recorder::applyPaintToOp(CompactDrawOp &amp;op, const Paint &amp;p) {
+  op.color = p.color;
+  op.blendMode = p.blendMode;
+  op.opacity = u8(p.opacity * 255);
+  op.width = p.strokeWidth;
+  op.flags = (p.cap &amp; 0x3) |
+             ((p.join &amp; 0x3) &lt;&lt; 2) |
+             (p.antiAlias ? 0x20 : 0) |
+             ((static_cast&lt;u8&gt;(p.filterQuality) &amp; 0x3) &lt;&lt; 6);
+  op.shaderIndex = storeShader(p.shader);
+  op.colorFilterIndex = storeColorFilter(p.colorFilter);
+}</code></pre>
+            <div class="reader-task">
+              <h3>注意</h3>
+              <ol>
+                <li><code>fillRule</code> 没在这里设置，它在 path op 里补到 flags bit 4。</li>
+                <li><code>opacity</code> 从 float 变成 0-255 的 u8。</li>
+                <li><code>colorFilter</code> 已记录，但当前 CPU/GL path visitor 没真正应用它。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="code-grid" style="margin-top:16px">
+            <pre><code><span class="dim">// src/recording.cpp:501-522</span>
+void Recorder::fillPath(const Path &amp;path, const Paint &amp;p) {
+  CompactDrawOp op{};
+  op.type = DrawOp::Type::FillPath;
+  applyPaintToOp(op, p);
+  Path storedPath = p.pathEffect ? p.pathEffect-&gt;filterPath(path) : path;
+  u8 fr = (storedPath.fillRule() == FillRule::EvenOdd) ? 1 : 0;
+  op.flags = (op.flags &amp; ~0x10) | (fr &lt;&lt; 4);
+  op.data.path.pathIndex = static_cast&lt;u32&gt;(paths_.size());
+  op.data.path.miterLimit = p.miterLimit;
+  paths_.push_back(std::move(storedPath));
+  ops_.push_back(op);
+}
+
+void Recorder::strokePath(const Path &amp;path, const Paint &amp;p) {
+  CompactDrawOp op{};
+  op.type = DrawOp::Type::StrokePath;
+  applyPaintToOp(op, p);
+  Path storedPath = p.pathEffect ? p.pathEffect-&gt;filterPath(path) : path;
+  op.data.path.pathIndex = static_cast&lt;u32&gt;(paths_.size());
+  op.data.path.miterLimit = p.miterLimit;
+  paths_.push_back(std::move(storedPath));
+  ops_.push_back(op);
+}</code></pre>
+            <div class="reader-task">
+              <h3>读法</h3>
+              <ol>
+                <li>path effect 在记录期应用，不是在 rasterizer 里应用。</li>
+                <li>fill path 记录 fill rule；stroke path 最终由 renderer 变成 fill geometry。</li>
+                <li>路径对象复制进 <code>paths_</code>，op 只存 <code>pathIndex</code>。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Recording 如何 dispatch 到 visitor</h2>
+          <p class="section-lead">
+            <code>Recording</code> 不知道 CPU、GL、Metal。它只知道把 op 解码，然后调用 <code>DrawOpVisitor</code> 的相应方法。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/recording.cpp:196-216</span>
+case DrawOp::Type::FillPath: {
+  const Path *p = getPath(op.data.path.pathIndex);
+  if (p) {
+    u8 fillRule = (op.flags &gt;&gt; 4) &amp; 1;
+    bool aa = (op.flags &gt;&gt; 5) &amp; 1;
+    visitor.visitFillPath(*p, op.color, op.blendMode, op.opacity,
+                          fillRule, aa, getShader(op.shaderIndex),
+                          getColorFilter(op.colorFilterIndex));
+  }
+  break;
+}
+case DrawOp::Type::StrokePath: {
+  const Path *p = getPath(op.data.path.pathIndex);
+  if (p) {
+    u8 capVal = op.flags &amp; 0x3;
+    u8 joinVal = (op.flags &gt;&gt; 2) &amp; 0x3;
+    bool aa = (op.flags &gt;&gt; 5) &amp; 1;
+    visitor.visitStrokePath(*p, op.color, op.width, op.blendMode,
+                            op.opacity, capVal, joinVal,
+                            op.data.path.miterLimit, aa,
+                            getShader(op.shaderIndex),
+                            getColorFilter(op.colorFilterIndex));
+  }
+  break;
+}</code></pre>
+            <div class="reader-task">
+              <h3>核心模式</h3>
+              <ol>
+                <li>Recording 是 decoder。</li>
+                <li>Visitor 是 backend-specific executor。</li>
+                <li>新增 op 时，必须同步扩展 enum、op storage、recorder、dispatch、visitor、所有 renderer。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>DrawPass 排序: 优化和语义的边界</h2>
+          <p class="section-lead">
+            <code>DrawPass</code> 生成的是 sorted op index 列表。它按 clip group、op type、color 排序，目的是减少后端状态切换。但只要有透明 blending，同组内重排就可能影响视觉结果，所以这里是需要主动怀疑的代码。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/draw_pass.cpp:18-68</span>
+for (u32 i = 0; i &lt; ops.size(); ++i) {
+  const auto &amp;op = ops[i];
+
+  if (op.type == DrawOp::Type::SetClip ||
+      op.type == DrawOp::Type::SetClipPath) {
+    ++currentClipId;
+    sequence = 0;
+    keys.push_back(SortKey::make(currentClipId,
+                                 DrawOp::Type::FillRect, {}, 0, i));
+    sequence = 1;
+    continue;
+  }
+  if (op.type == DrawOp::Type::ClearClip) {
+    keys.push_back(SortKey::make(currentClipId,
+                                 static_cast&lt;DrawOp::Type&gt;(0xFF),
+                                 {0xFF, 0xFF, 0xFF, 0xFF}, 0xFE, i));
+    ++currentClipId;
+    sequence = 0;
+    continue;
+  }
+
+  keys.push_back(SortKey::make(currentClipId, op.type,
+                               op.color, sequence++, i));
+}
+
+std::stable_sort(keys.begin(), keys.end());</code></pre>
+            <div class="reader-task">
+              <h3>要问的问题</h3>
+              <ol>
+                <li>clip/transform op 为什么不能和普通 draw op 同等排序？</li>
+                <li>同一 clip group 内按 op type 排序是否总是安全？</li>
+                <li>如果引入 saveLayer 或复杂 blend mode，这里是否需要更强 ordering model？</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>学习重点:</strong>
+            这段代码不是“排序算法难”，而是“渲染语义难”。先用测试证明它保留 clip/transform 边界，再讨论 batching 优化。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>配套测试怎么读</h2>
+          <p class="section-lead">
+            <span class="source">tests/test_draw_pass.cpp</span> 是这章最好的验证材料。它直接构造 recording，检查 sorted indices 的性质。
+          </p>
+
+          <table class="table">
+            <thead>
+              <tr>
+                <th>测试</th>
+                <th>验证的行为</th>
+                <th>为什么重要</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>SameTypeGroupedTogether</code></td>
+                <td>同类型 draw op 排在一起。</td>
+                <td>这是 batching 的基础。</td>
+              </tr>
+              <tr>
+                <td><code>SetClipCreatesNewGroup</code></td>
+                <td><code>SetClip</code> 会创建新 clip group。</td>
+                <td>保护 clip 状态不被错误跨越。</td>
+              </tr>
+              <tr>
+                <td><code>ClearClipAtEndOfGroup</code></td>
+                <td><code>ClearClip</code> 排在 group 末尾。</td>
+                <td>确保清除 clip 之前先执行该 group 的 draw。</td>
+              </tr>
+              <tr>
+                <td><code>PreservesAllIndices</code></td>
+                <td>排序不会丢 op。</td>
+                <td>最基础的 scheduler 正确性。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a href="frame-pipeline.html">← 上一章: 一帧生命周期</a>
+        <a href="path-rendering.html">下一章: Path 渲染 →</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
