@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览 - Path 渲染</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>3. Path 渲染</strong>
+        <span>verbs -> edges -> coverage -> pixels</span>
+      </div>
+      <nav class="side-nav">
+        <a href="index.html">0. 总览</a>
+        <a href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a class="current" href="path-rendering.html">3. Path 渲染</a>
+        <a href="renderer-backends.html">4. Renderer / 后端</a>
+        <a href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        本页目标: 从 Path 数据结构读到 CPU 像素写入。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero narrow">
+        <div class="wrap">
+          <div class="kicker">geometry to pixels</div>
+          <h1>Path 是学习 2D 渲染的主战场</h1>
+          <p class="lead">
+            ink 的 Path 子系统把图形开发最核心的东西串起来了：路径数据结构、曲线 flatten、fill rule、抗锯齿 coverage、stroke-to-fill、dash effect、clip mask。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Path 本身只是结构化几何数据</h2>
+          <p class="section-lead">
+            <code>Path</code> 不是像素，也不是 draw call。它保存 verb 序列和 points。渲染时才解释这些 verb。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// include/ink/path.hpp:40-148</span>
+class Path {
+public:
+  enum class Verb : u8 {
+    Move, Line, Quad, Cubic, Conic, Close,
+  };
+
+  Path &amp;moveTo(f32 x, f32 y);
+  Path &amp;lineTo(f32 x, f32 y);
+  Path &amp;quadTo(f32 x1, f32 y1, f32 x2, f32 y2);
+  Path &amp;cubicTo(f32 x1, f32 y1, f32 x2, f32 y2,
+                f32 x3, f32 y3);
+  Path &amp;conicTo(f32 x1, f32 y1, f32 x2, f32 y2, f32 weight);
+  Path &amp;close();
+
+  const std::vector&lt;Verb&gt; &amp;verbs() const { return verbs_; }
+  const std::vector&lt;Point&gt; &amp;points() const { return points_; }
+  const std::vector&lt;f32&gt; &amp;conicWeights() const { return conicWeights_; }
+
+private:
+  std::vector&lt;Verb&gt; verbs_;
+  std::vector&lt;Point&gt; points_;
+  std::vector&lt;f32&gt; conicWeights_;
+  FillRule fillRule_ = FillRule::Winding;
+};</code></pre>
+            <div class="reader-task">
+              <h3>读法</h3>
+              <ol>
+                <li>每个 verb 消耗的 point 数不同。读 rasterizer 时要跟着 <code>ptIdx</code> 走。</li>
+                <li><code>Close</code> 不消耗 point，它连回 contour 起点。</li>
+                <li>一个 Path 可以包含多个 contour，例如 donut 是两个 circle。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>第一原则:</strong>
+            Path 的核心不是“形状名称”，而是“边界曲线集合”。圆、矩形、圆角矩形都可以只是 Path 的语法糖。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>CPU rasterizer 的主循环</h2>
+          <p class="section-lead">
+            CPU path fill 的核心是 scanline rasterization。先把 path 变成边，再逐行计算覆盖率，最后 blend 到目标像素。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/path_rasterizer.hpp:36-83</span>
+void addPath(const Path &amp;path, const Matrix &amp;transform) {
+  const auto &amp;verbs = path.verbs();
+  const auto &amp;pts = path.points();
+  const auto &amp;cws = path.conicWeights();
+  i32 ptIdx = 0, cwIdx = 0;
+  Point contourStart = {0, 0}, cur = {0, 0};
+
+  for (auto v : verbs) {
+    switch (v) {
+    case Path::Verb::Move:
+      contourStart = cur = transform.mapPoint(pts[ptIdx++]);
+      break;
+    case Path::Verb::Line:
+      Point next = transform.mapPoint(pts[ptIdx++]);
+      addLine(cur, next);
+      cur = next;
+      break;
+    case Path::Verb::Quad:
+      flattenQuad(cur, cp, end, kFlatTolerance);
+      break;
+    case Path::Verb::Cubic:
+      flattenCubic(cur, c1, c2, end, kFlatTolerance);
+      break;
+    case Path::Verb::Close:
+      addLine(cur, contourStart);
+      cur = contourStart;
+      break;
+    }
+  }
+}</code></pre>
+            <div class="reader-task">
+              <h3>这里学到什么</h3>
+              <ol>
+                <li>曲线先 flatten 成线段，才进入 scanline。</li>
+                <li>transform 在几何阶段应用，不是在像素阶段再映射。</li>
+                <li><code>kFlatTolerance = 0.25f</code> 是质量/性能权衡点。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="code-grid" style="margin-top:16px">
+            <pre><code><span class="dim">// src/path_rasterizer.hpp:85-145</span>
+void rasterize(Pixmap *target, const Rect &amp;clip, Color color,
+               BlendMode blend, u8 opacity, bool antialias,
+               FillRule fillRule, const Shader *shader, bool isBGRA,
+               const u8 *clipMask = nullptr, i32 clipMaskStride = 0) {
+  i32 subCount = antialias ? kAAFactor : 1;
+  f32 subStep = 1.0f / subCount;
+
+  for (i32 y = clipY0; y &lt; clipY1; ++y) {
+    std::fill(coverage.begin(), coverage.end(), 0.0f);
+
+    for (i32 sub = 0; sub &lt; subCount; ++sub) {
+      f32 scanY = y + (sub + 0.5f) * subStep;
+      fillScanline(scanY, clipX0, clipX1,
+                   fillRule, coverage.data(), subStep);
+    }
+
+    if (shader) {
+      shader-&gt;shadeSpan(clipX0, y, width, shaderColors.data());
+    }
+
+    for (i32 i = 0; i &lt; width; ++i) {
+      Color src = shader ? shaderColors[i] : color;
+      src.a = static_cast&lt;u8&gt;(src.a * covAlpha / 255);
+      Color dst = decodePixel(pixel, isBGRA);
+      pixel = encodePixel(blendColors(src, dst, blend), isBGRA);
+    }
+  }
+}</code></pre>
+            <div class="reader-task">
+              <h3>这里学到什么</h3>
+              <ol>
+                <li>AA 通过 8x y 方向 supersampling 得到 coverage。</li>
+                <li>shader 只负责产出颜色，coverage 仍由几何决定。</li>
+                <li>clipMask 会继续缩放 src alpha。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>FillRule: inside 判断不是唯一的</h2>
+          <p class="section-lead">
+            同一个 path 数据，用 winding 和 even-odd 会得出不同的“内部区域”。这不是视觉选项，而是几何规则。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/path_rasterizer.hpp:242-268</span>
+void fillScanline(f32 scanY, i32 clipX0, i32 clipX1,
+                  FillRule fillRule, f32 *coverage, f32 weight) {
+  thread_local std::vector&lt;XIntersect&gt; xInts;
+  xInts.clear();
+
+  for (const auto &amp;e : edges_) {
+    if (scanY &lt; e.yTop || scanY &gt;= e.yBot)
+      continue;
+    f32 x = e.xAtTop + (scanY - e.yTop) * e.dxPerY;
+    xInts.push_back({x, e.winding});
+  }
+
+  std::sort(xInts.begin(), xInts.end(), byX);
+
+  i32 winding = 0;
+  for (size_t i = 0; i &lt; xInts.size(); ++i) {
+    i32 prevWinding = winding;
+    winding += xInts[i].winding;
+
+    bool wasFilled = (fillRule == FillRule::EvenOdd)
+        ? (prevWinding &amp; 1) != 0
+        : prevWinding != 0;
+    bool isFilled = (fillRule == FillRule::EvenOdd)
+        ? (winding &amp; 1) != 0
+        : winding != 0;
+  }
+}</code></pre>
+            <div class="reader-task">
+              <h3>实验</h3>
+              <ol>
+                <li>构造两个同心 circle。</li>
+                <li>先用默认 Winding，看中心是否被填充。</li>
+                <li>设置 <code>path.setFillRule(FillRule::EvenOdd)</code>，再看中心是否变空。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>源码锚点:</strong>
+            <span class="source">examples/example_paths.cpp:83-90</span> 的 donut 示例就是这个规则的实际用法。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Stroke 不是直接 rasterize，而是先变成 fill</h2>
+          <p class="section-lead">
+            当前 CPU path stroke 走 stroke-to-fill。也就是说“线宽、cap、join、miterLimit”先变成一个新的填充路径，然后复用 fill rasterizer。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/cpu_renderer.hpp:316-329</span>
+void visitStrokePath(const Path &amp;path, Color color, f32 width,
+                     BlendMode blend, u8 opacity, u8 cap, u8 join,
+                     f32 miterLimit, bool antiAlias,
+                     const Shader *shader, const ColorFilter *) override {
+  Path stroked =
+      StrokeEngine::strokePath(path, width,
+                               static_cast&lt;LineCap&gt;(cap),
+                               static_cast&lt;LineJoin&gt;(join),
+                               miterLimit);
+  rasterizer_.reset();
+  rasterizer_.addPath(stroked, currentTransform_);
+  rasterizer_.rasterize(target_, effectiveClip(), color, blend,
+                        opacity, antiAlias, FillRule::Winding,
+                        shader, isBGRA_, clipMask, clipMaskWidth_);
+}</code></pre>
+            <div class="reader-task">
+              <h3>读 <code>StrokeEngine</code></h3>
+              <ol>
+                <li><span class="source">src/stroke.hpp:27-38</span>: 先 flatten 成 contours。</li>
+                <li><span class="source">src/stroke.hpp:170-178</span>: 计算 segment direction 和 normal。</li>
+                <li><span class="source">src/stroke.hpp:185-217</span>: 构造 left/right offset polyline。</li>
+                <li><span class="source">src/stroke.hpp:219</span> 之后: 把 offset polygon 写成 Path。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>主动怀疑点:</strong>
+            stroke-to-fill 简化了 renderer，但会把 stroke 的质量、join/cap 精度、退化线段处理都集中到 <code>StrokeEngine</code>。不要把它当成“天然正确”。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Dash effect 在记录期改变几何</h2>
+          <p class="section-lead">
+            <code>PathEffect</code> 的 dash 不是 renderer state。Recorder 在存 path 前调用 <code>filterPath()</code>，把原始 path 转换成一段段 on/off 线段。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/path_effect.cpp:151-163, 209-239</span>
+class DashPathEffect final : public PathEffect {
+public:
+  Path filterPath(const Path &amp;src) const override {
+    Path out;
+    out.setFillRule(src.fillRule());
+    for (const auto &amp;contour : flattenPath(src)) {
+      dashContour(contour, out);
+    }
+    return out;
+  }
+
+private:
+  void dashContour(const FlatContour &amp;contour, Path &amp;out) const {
+    State state = initialState();
+    for (size_t i = 0; i &lt; segmentCount; ++i) {
+      while (consumed &lt; len) {
+        f32 take = std::min(state.remaining, len - consumed);
+        if (state.on &amp;&amp; take &gt; 1e-6f) {
+          out.moveTo(p0);
+          out.lineTo(p1);
+        }
+        consumed += take;
+        state.remaining -= take;
+      }
+    }
+  }
+};</code></pre>
+            <div class="reader-task">
+              <h3>验证点</h3>
+              <ol>
+                <li><span class="source">tests/test_path.cpp</span> 里有 dash 生成 on segments 的测试。</li>
+                <li>dash effect 会 flatten 曲线，所以曲线 dash 精度由 flatten tolerance 决定。</li>
+                <li>因为它改变几何，fill rule 会被复制到输出 path。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>clipPath: CPU mask 和 GL stencil 是两套实现</h2>
+          <p class="section-lead">
+            Path clip 是理解 backend 差异的好例子。CPU backend 生成 alpha mask 并乘到后续像素；GL backend 用 stencil bits 表达 clip。
+          </p>
+
+          <div class="grid two">
+            <div class="card flat">
+              <h3>CPU clip mask</h3>
+              <pre><code><span class="dim">// src/cpu_renderer.hpp:143-173</span>
+Pixmap mask = Pixmap::Alloc(PixmapInfo::MakeRGBA(w, h));
+mask.clear({0, 0, 0, 0});
+
+PathRasterizer clipRasterizer;
+clipRasterizer.addPath(path, currentTransform_);
+clipRasterizer.rasterize(&amp;mask, effectiveClip(),
+                         {255, 255, 255, 255},
+                         BlendMode::Src, 255, antiAlias,
+                         fr, nullptr, false);
+
+clipMask_[i] = clipMask_[i] * alpha / 255;</code></pre>
+            </div>
+            <div class="card flat">
+              <h3>GL stencil clip</h3>
+              <pre><code><span class="dim">// src/gpu/gl/gl_context.cpp:786-814</span>
+auto contours = flattenPathForGL(path, currentTransform_);
+bool hadClip = clipStencilActive_;
+
+clearStencilBits(kPathStencilMask);
+stencilPathBits(contours, fillRule, hadClip);
+
+clearStencilBits(kClipStencilBit);
+glStencilMask(kClipStencilBit);
+glStencilFunc(GL_NOTEQUAL, kClipStencilBit, kPathStencilMask);
+glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+drawSolidRectNoTransform(bounds, white);
+
+clipStencilActive_ = true;
+restoreClipStencilState();</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a href="recording-drawpass.html">← 上一章: Recording / DrawPass</a>
+        <a href="renderer-backends.html">下一章: Renderer / 后端 →</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

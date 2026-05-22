@@ -17,11 +17,11 @@ ink Documentation
    :maxdepth: 2
    :caption: API Reference
 
-   api/surface
-   api/canvas
-   api/image
-   api/pixmap
-   api/recording
-   api/gpu_context
-   api/glyph_cache
-   api/types
+   api
+
+.. toctree::
+   :hidden:
+
+   architecture
+   building
+   usage

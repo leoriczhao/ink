@@ -2,7 +2,7 @@
 
 A lightweight 2D rendering library with pluggable renderers.
 
-ink provides a simple Canvas API for drawing 2D primitives (rectangles, lines, polylines, text, images) with a unified record-then-execute architecture. All drawing commands are first recorded, then sorted for optimal execution, and finally dispatched to a renderer for rendering.
+ink provides a simple Canvas API for drawing 2D primitives (rectangles, lines, polylines, paths, text, images) with a unified record-then-execute architecture. All drawing commands are first recorded, then sorted for optimal execution, and finally dispatched to a renderer for rendering.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Canvas -> Device -> Recording -> DrawPass -> Renderer
 | Renderer | Status | Description |
 |----------|--------|-------------|
 | CpuRenderer | Working | Software rasterization to a Pixmap buffer |
-| GL (via GpuContext) | Working | OpenGL 3.3+ rendering via FBO + GLSL shaders, vertex batching, scissor clipping, GPU snapshots |
+| GL (via GpuContext) | Working | OpenGL 3.3+ rendering via FBO + GLSL shaders, vertex batching, scissor clipping, stencil-and-cover path rendering, GPU snapshots |
 | Metal (via GpuContext) | Working | Metal rendering on macOS/iOS |
 | Vulkan (via GpuContext) | Planned | Vulkan rendering (stub only) |
 
@@ -133,6 +133,35 @@ auto pd = surface->getPixelData();
 // pd.data, pd.width, pd.height, pd.rowBytes, pd.format are ready for display
 ```
 
+### Paths, clipping, and dash effects
+
+```cpp
+ink::Path path;
+path.moveTo(100, 100)
+    .cubicTo(160, 20, 260, 180, 320, 100)
+    .lineTo(320, 240)
+    .lineTo(100, 240)
+    .close();
+
+ink::Paint fill = ink::Paint::Fill({40, 120, 220, 255});
+fill.antiAlias = true;
+
+surface->beginFrame();
+auto* canvas = surface->canvas();
+canvas->save();
+canvas->clipPath(path);
+canvas->fillRect({0, 0, 800, 600}, {245, 245, 245, 255});
+canvas->restore();
+canvas->drawPath(path, fill);
+
+ink::Paint stroke = ink::Paint::Stroke({255, 255, 255, 255}, 4.0f);
+float dash[] = {12.0f, 6.0f};
+stroke.pathEffect = ink::PathEffects::MakeDash(dash, 2);
+canvas->drawPath(path, stroke);
+surface->endFrame();
+surface->flush();
+```
+
 ### Text rendering
 
 ```cpp
@@ -150,12 +179,8 @@ surface->flush();
 
 ```cpp
 #include <ink/ink.hpp>
-
-// Auto-select: tries GPU first, falls back to CPU
-auto surface = ink::Surface::MakeAuto(800, 600);
-
-// Or explicitly create a GPU surface with a shared context
 #include <ink/gpu/gl/gl_context.hpp>
+
 auto ctx = ink::GpuContexts::MakeGL();
 auto surface = ink::Surface::MakeGpu(ctx, 800, 600);
 
@@ -214,6 +239,8 @@ ink/
 │   ├── pixmap.hpp           # Pixel buffer management
 │   ├── pixel_data.hpp       # Non-owning pixel data descriptor
 │   ├── image.hpp            # Immutable pixel snapshot (CPU or GPU-backed)
+│   ├── path.hpp             # Vector paths, fill rules, stroke caps/joins
+│   ├── path_effect.hpp      # Path effects such as dashed strokes
 │   ├── canvas.hpp           # User-facing drawing API
 │   ├── device.hpp           # Recording device
 │   ├── recording.hpp        # Command recording and compact ops
@@ -243,10 +270,11 @@ ink/
 │       └── vk/
 │           └── vk_context.cpp   # Vulkan stub
 ├── tests/
-│   └── *.cpp                # Google Test suite (8 test files)
+│   └── *.cpp                # Google Test suite
 ├── examples/
 │   ├── example_basic.cpp       # CPU + GPU drawing demo
 │   ├── example_composite.cpp   # Multi-layer compositing demo
+│   ├── example_paths.cpp       # Paths, path clipping, dashed strokes, and optional GL path rendering
 │   └── example_gpu.cpp         # GPU-specific rendering demo
 └── third_party/
     └── stb_truetype.h       # Font rasterization
@@ -264,8 +292,8 @@ cmake -B build
 cmake --build build --target docs
 
 # Or manually
-doxygen Doxyfile                          # API reference → docs/_build/doxygen/html/
-sphinx-build docs docs/_build/sphinx      # Full site     → docs/_build/sphinx/
+doxygen Doxyfile                          # API reference -> docs/_build/doxygen/html/
+sphinx-build docs docs/_build/sphinx      # Full site     -> docs/_build/sphinx/
 ```
 
 ### Documentation contents

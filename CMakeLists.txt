@@ -1,16 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
-project(ink VERSION 0.2.0 LANGUAGES CXX)
+project(ink VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Build options ---
-option(INK_ENABLE_GL      "Enable OpenGL backend"      OFF)
-option(INK_ENABLE_METAL   "Enable Metal backend"       OFF)
-option(INK_ENABLE_VULKAN  "Enable Vulkan backend"      OFF)
-option(INK_BUILD_TESTS    "Build tests"                OFF)
-option(INK_BUILD_EXAMPLES "Build examples"             OFF)
-option(BUILD_SHARED_LIBS  "Build as shared library"    OFF)
+option(INK_ENABLE_GL "Enable OpenGL backend" OFF)
+option(INK_ENABLE_METAL "Enable Metal backend" OFF)
+option(INK_ENABLE_VULKAN "Enable Vulkan backend" OFF)
+option(INK_BUILD_TESTS "Build tests" OFF)
+option(INK_BUILD_EXAMPLES "Build examples" OFF)
+option(BUILD_SHARED_LIBS "Build as shared library" OFF)
 
 # --- Core source files (always compiled) ---
 set(INK_CORE_SOURCES
@@ -23,6 +23,10 @@ set(INK_CORE_SOURCES
     src/image.cpp
     src/glyph_cache.cpp
     src/gpu/gpu_context.cpp
+    src/path.cpp
+    src/path_effect.cpp
+    src/shader.cpp
+    src/font.cpp
 )
 
 # --- Create library ---
@@ -133,6 +137,12 @@ if(INK_BUILD_EXAMPLES)
     add_executable(example_composite examples/example_composite.cpp)
     target_link_libraries(example_composite PRIVATE ink SDL2::SDL2)
 
+    add_executable(example_paths examples/example_paths.cpp)
+    target_link_libraries(example_paths PRIVATE ink SDL2::SDL2)
+    if(INK_ENABLE_GL AND OpenGL_FOUND AND GLEW_FOUND)
+        target_link_libraries(example_paths PRIVATE OpenGL::GL GLEW::GLEW)
+    endif()
+
     # GPU example - requires at least one GPU backend
     set(INK_HAS_GPU_BACKEND FALSE)
 
@@ -159,7 +169,7 @@ if(INK_BUILD_TESTS)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG        v1.14.0
+        GIT_TAG v1.14.0
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
@@ -180,6 +190,8 @@ if(INK_BUILD_TESTS)
         tests/test_surface.cpp
         tests/test_composite.cpp
         tests/test_shapes.cpp
+        tests/test_path.cpp
+        tests/test_gradient.cpp
     )
 
     add_executable(ink_tests ${INK_TEST_SOURCES})

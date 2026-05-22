@@ -4,28 +4,31 @@
 // Requires macOS 10.13+ or iOS 11+.
 
 #include "ink/gpu/metal/metal_context.hpp"
-#include "ink/gpu/gpu_context.hpp"
-#include "ink/recording.hpp"
-#include "ink/draw_pass.hpp"
+#include "gpu_impl.hpp"
+#include "ink/color_filter.hpp"
 #include "ink/draw_op_visitor.hpp"
+#include "ink/draw_pass.hpp"
+#include "ink/glyph_cache.hpp"
+#include "ink/gpu/gpu_context.hpp"
 #include "ink/image.hpp"
 #include "ink/paint.hpp"
-#include "ink/glyph_cache.hpp"
-#include "gpu_impl.hpp"
+#include "ink/path.hpp"
+#include "ink/recording.hpp"
+#include "ink/shader.hpp"
 #include "metal_resources.hpp"
 
 #if INK_HAS_METAL
 
 #import <Metal/Metal.h>
+#include <cmath>
+#include <cstdio>
 #import <simd/simd.h>
 #include <vector>
-#include <cstdio>
-#include <cmath>
 
 namespace ink {
 
 // Metal Shading Language source (embedded)
-static NSString* const kShaderSource = @R"(
+static NSString *const kShaderSource = @R"(
 #include <metal_stdlib>
 using namespace metal;
 
@@ -81,596 +84,693 @@ fragment float4 tex_fragment(TexOut in [[stage_in]],
 )";
 
 // MetalTextureCache::resolve implementation
-id<MTLTexture> MetalTextureCache::resolve(id<MTLDevice> device, const Image* image) {
-    if (!image || !image->valid()) return nil;
-    if (image->isGpuBacked()) {
-        // The backend texture handle stores a bridged MTLTexture pointer
-        u64 handle = image->backendTextureHandle();
-        if (handle == 0) return nil;
-        return (__bridge id<MTLTexture>)(void*)handle;
-    }
+id<MTLTexture> MetalTextureCache::resolve(id<MTLDevice> device,
+                                          const Image *image) {
+  if (!image || !image->valid())
+    return nil;
+  if (image->isGpuBacked()) {
+    // The backend texture handle stores a bridged MTLTexture pointer
+    u64 handle = image->backendTextureHandle();
+    if (handle == 0)
+      return nil;
+    return (__bridge id<MTLTexture>)(void *)handle;
+  }
 
-    u64 imgId = image->uniqueId();
-    auto it = cache_.find(imgId);
-    if (it != cache_.end()) return it->second;
+  u64 imgId = image->uniqueId();
+  auto it = cache_.find(imgId);
+  if (it != cache_.end())
+    return it->second;
 
-    MTLPixelFormat fmt = (image->format() == PixelFormat::BGRA8888)
-        ? MTLPixelFormatBGRA8Unorm : MTLPixelFormatRGBA8Unorm;
-    MTLTextureDescriptor* desc = [MTLTextureDescriptor
-        texture2DDescriptorWithPixelFormat:fmt
-        width:image->width() height:image->height() mipmapped:NO];
-    desc.usage = MTLTextureUsageShaderRead;
+  MTLPixelFormat fmt = (image->format() == PixelFormat::BGRA8888)
+                           ? MTLPixelFormatBGRA8Unorm
+                           : MTLPixelFormatRGBA8Unorm;
+  MTLTextureDescriptor *desc =
+      [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:fmt
+                                                         width:image->width()
+                                                        height:image->height()
+                                                     mipmapped:NO];
+  desc.usage = MTLTextureUsageShaderRead;
 
-    id<MTLTexture> mtlTex = [device newTextureWithDescriptor:desc];
-    if (!mtlTex) return nil;
+  id<MTLTexture> mtlTex = [device newTextureWithDescriptor:desc];
+  if (!mtlTex)
+    return nil;
 
-    MTLRegion region = MTLRegionMake2D(0, 0, image->width(), image->height());
-    [mtlTex replaceRegion:region mipmapLevel:0
+  MTLRegion region = MTLRegionMake2D(0, 0, image->width(), image->height());
+  [mtlTex replaceRegion:region
+            mipmapLevel:0
               withBytes:image->pixels()
             bytesPerRow:image->stride()];
 
-    cache_[imgId] = mtlTex;
-    return mtlTex;
+  cache_[imgId] = mtlTex;
+  return mtlTex;
 }
 
 // MetalImpl - implements GpuImpl + DrawOpVisitor for Metal
 class MetalImpl : public GpuImpl, public DrawOpVisitor {
 public:
-    id<MTLDevice> device_ = nil;
-    id<MTLCommandQueue> commandQueue_ = nil;
-    id<MTLLibrary> library_ = nil;
-    id<MTLSamplerState> sampler_ = nil;
+  id<MTLDevice> device_ = nil;
+  id<MTLCommandQueue> commandQueue_ = nil;
+  id<MTLLibrary> library_ = nil;
+  id<MTLSamplerState> sampler_ = nil;
 
-    MetalPipeline colorPipeline_;
-    MetalPipeline texPipeline_;
-    MetalFramebuffer framebuffer_;
-    MetalTextureCache textureCache_;
-    GlyphCache* glyphCache_ = nullptr;
+  MetalPipeline colorPipeline_;
+  MetalPipeline texPipeline_;
+  MetalFramebuffer framebuffer_;
+  MetalTextureCache textureCache_;
+  GlyphCache *glyphCache_ = nullptr;
 
-    // Per-frame state
-    id<MTLCommandBuffer> commandBuffer_ = nil;
-    id<MTLRenderCommandEncoder> encoder_ = nil;
+  // Per-frame state
+  id<MTLCommandBuffer> commandBuffer_ = nil;
+  id<MTLRenderCommandEncoder> encoder_ = nil;
 
-    std::vector<MetalColorVertex> colorVerts_;
-    std::vector<MetalTexVertex> texVerts_;
-    const Recording* currentRecording_ = nullptr;
+  std::vector<MetalColorVertex> colorVerts_;
+  std::vector<MetalTexVertex> texVerts_;
+  const Recording *currentRecording_ = nullptr;
 
-    // Temp texture for text rendering
-    id<MTLTexture> tempTexture_ = nil;
+  // Temp texture for text rendering
+  id<MTLTexture> tempTexture_ = nil;
 
-    ~MetalImpl() override { destroy(); }
+  ~MetalImpl() override { destroy(); }
 
-    bool init(i32 w, i32 h) {
-        device_ = MTLCreateSystemDefaultDevice();
-        if (!device_) {
-            std::fprintf(stderr, "ink Metal: no Metal device available\n");
-            return false;
-        }
-
-        commandQueue_ = [device_ newCommandQueue];
-        if (!commandQueue_) {
-            std::fprintf(stderr, "ink Metal: failed to create command queue\n");
-            return false;
-        }
-
-        // Compile shaders from source
-        NSError* error = nil;
-        library_ = [device_ newLibraryWithSource:kShaderSource options:nil error:&error];
-        if (!library_) {
-            std::fprintf(stderr, "ink Metal: shader compile error: %s\n",
-                         [[error localizedDescription] UTF8String]);
-            return false;
-        }
-
-        // Create sampler
-        MTLSamplerDescriptor* samplerDesc = [[MTLSamplerDescriptor alloc] init];
-        samplerDesc.minFilter = MTLSamplerMinMagFilterNearest;
-        samplerDesc.magFilter = MTLSamplerMinMagFilterNearest;
-        sampler_ = [device_ newSamplerStateWithDescriptor:samplerDesc];
-
-        // Color vertex descriptor: float2 position + float4 color, stride = 24
-        MTLVertexDescriptor* colorVertDesc = [[MTLVertexDescriptor alloc] init];
-        colorVertDesc.attributes[0].format = MTLVertexFormatFloat2;
-        colorVertDesc.attributes[0].offset = 0;
-        colorVertDesc.attributes[0].bufferIndex = 0;
-        colorVertDesc.attributes[1].format = MTLVertexFormatFloat4;
-        colorVertDesc.attributes[1].offset = sizeof(float) * 2;
-        colorVertDesc.attributes[1].bufferIndex = 0;
-        colorVertDesc.layouts[0].stride = sizeof(MetalColorVertex);
-        colorVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-        // Texture vertex descriptor: float2 position + float2 texCoord, stride = 16
-        MTLVertexDescriptor* texVertDesc = [[MTLVertexDescriptor alloc] init];
-        texVertDesc.attributes[0].format = MTLVertexFormatFloat2;
-        texVertDesc.attributes[0].offset = 0;
-        texVertDesc.attributes[0].bufferIndex = 0;
-        texVertDesc.attributes[1].format = MTLVertexFormatFloat2;
-        texVertDesc.attributes[1].offset = sizeof(float) * 2;
-        texVertDesc.attributes[1].bufferIndex = 0;
-        texVertDesc.layouts[0].stride = sizeof(MetalTexVertex);
-        texVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-        // Create pipelines
-        if (!colorPipeline_.init(device_, library_, @"color_vertex", @"color_fragment",
-                                 MTLPixelFormatBGRA8Unorm, colorVertDesc))
-            return false;
-        if (!texPipeline_.init(device_, library_, @"tex_vertex", @"tex_fragment",
-                               MTLPixelFormatBGRA8Unorm, texVertDesc))
-            return false;
-
-        return framebuffer_.init(device_, w, h);
+  bool init(i32 w, i32 h) {
+    device_ = MTLCreateSystemDefaultDevice();
+    if (!device_) {
+      std::fprintf(stderr, "ink Metal: no Metal device available\n");
+      return false;
     }
 
-    void destroy() {
-        textureCache_.clear();
-        framebuffer_.destroy();
-        colorPipeline_.destroy();
-        texPipeline_.destroy();
-        tempTexture_ = nil;
-        sampler_ = nil;
-        library_ = nil;
-        commandQueue_ = nil;
-        device_ = nil;
+    commandQueue_ = [device_ newCommandQueue];
+    if (!commandQueue_) {
+      std::fprintf(stderr, "ink Metal: failed to create command queue\n");
+      return false;
     }
 
-    // GpuImpl interface
-    bool valid() const override { return framebuffer_.texture != nil; }
-
-    void beginFrame(Color clearColor = {0, 0, 0, 255}) override {
-        // Commit any pending work from a previous frame that was never flushed
-        commitIfNeeded();
-
-        commandBuffer_ = [commandQueue_ commandBuffer];
-        MTLRenderPassDescriptor* rpDesc = framebuffer_.renderPassDescriptor(clearColor);
-        encoder_ = [commandBuffer_ renderCommandEncoderWithDescriptor:rpDesc];
-        MTLViewport vp = {0, 0,
-            (double)framebuffer_.width, (double)framebuffer_.height, 0, 1};
-        [encoder_ setViewport:vp];
+    // Compile shaders from source
+    NSError *error = nil;
+    library_ = [device_ newLibraryWithSource:kShaderSource
+                                     options:nil
+                                       error:&error];
+    if (!library_) {
+      std::fprintf(stderr, "ink Metal: shader compile error: %s\n",
+                   [[error localizedDescription] UTF8String]);
+      return false;
     }
 
-    void endFrame() override {
-        flushColorBatch();
-        // Don't commit here — Surface::flush() calls execute() after endFrame(),
-        // and execute() needs the active encoder. Commit happens in execute().
+    // Create sampler
+    MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
+    samplerDesc.minFilter = MTLSamplerMinMagFilterNearest;
+    samplerDesc.magFilter = MTLSamplerMinMagFilterNearest;
+    sampler_ = [device_ newSamplerStateWithDescriptor:samplerDesc];
+
+    // Color vertex descriptor: float2 position + float4 color, stride = 24
+    MTLVertexDescriptor *colorVertDesc = [[MTLVertexDescriptor alloc] init];
+    colorVertDesc.attributes[0].format = MTLVertexFormatFloat2;
+    colorVertDesc.attributes[0].offset = 0;
+    colorVertDesc.attributes[0].bufferIndex = 0;
+    colorVertDesc.attributes[1].format = MTLVertexFormatFloat4;
+    colorVertDesc.attributes[1].offset = sizeof(float) * 2;
+    colorVertDesc.attributes[1].bufferIndex = 0;
+    colorVertDesc.layouts[0].stride = sizeof(MetalColorVertex);
+    colorVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+    // Texture vertex descriptor: float2 position + float2 texCoord, stride = 16
+    MTLVertexDescriptor *texVertDesc = [[MTLVertexDescriptor alloc] init];
+    texVertDesc.attributes[0].format = MTLVertexFormatFloat2;
+    texVertDesc.attributes[0].offset = 0;
+    texVertDesc.attributes[0].bufferIndex = 0;
+    texVertDesc.attributes[1].format = MTLVertexFormatFloat2;
+    texVertDesc.attributes[1].offset = sizeof(float) * 2;
+    texVertDesc.attributes[1].bufferIndex = 0;
+    texVertDesc.layouts[0].stride = sizeof(MetalTexVertex);
+    texVertDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+    // Create pipelines
+    if (!colorPipeline_.init(device_, library_, @"color_vertex",
+                             @"color_fragment", MTLPixelFormatBGRA8Unorm,
+                             colorVertDesc))
+      return false;
+    if (!texPipeline_.init(device_, library_, @"tex_vertex", @"tex_fragment",
+                           MTLPixelFormatBGRA8Unorm, texVertDesc))
+      return false;
+
+    return framebuffer_.init(device_, w, h);
+  }
+
+  void destroy() {
+    textureCache_.clear();
+    framebuffer_.destroy();
+    colorPipeline_.destroy();
+    texPipeline_.destroy();
+    tempTexture_ = nil;
+    sampler_ = nil;
+    library_ = nil;
+    commandQueue_ = nil;
+    device_ = nil;
+  }
+
+  // GpuImpl interface
+  bool valid() const override { return framebuffer_.texture != nil; }
+
+  void beginFrame(Color clearColor = {0, 0, 0, 255}) override {
+    // Commit any pending work from a previous frame that was never flushed
+    commitIfNeeded();
+
+    commandBuffer_ = [commandQueue_ commandBuffer];
+    MTLRenderPassDescriptor *rpDesc =
+        framebuffer_.renderPassDescriptor(clearColor);
+    encoder_ = [commandBuffer_ renderCommandEncoderWithDescriptor:rpDesc];
+    MTLViewport vp = {
+        0, 0, (double)framebuffer_.width, (double)framebuffer_.height, 0, 1};
+    [encoder_ setViewport:vp];
+  }
+
+  void endFrame() override {
+    flushColorBatch();
+    // Don't commit here — Surface::flush() calls execute() after endFrame(),
+    // and execute() needs the active encoder. Commit happens in execute().
+  }
+
+  void resize(i32 w, i32 h) override { framebuffer_.resize(device_, w, h); }
+
+  void setGlyphCache(GlyphCache *cache) override { glyphCache_ = cache; }
+
+  void execute(const Recording &recording, const DrawPass &pass) override {
+    currentRecording_ = &recording;
+    recording.dispatch(*this, pass);
+    flushColorBatch();
+    currentRecording_ = nullptr;
+
+    // Commit the command buffer after executing all draw ops
+    commitIfNeeded();
+  }
+
+  // DrawOpVisitor interface
+  void applyOpacity(Color &c, u8 opacity) { c.a = u8(c.a * opacity / 255); }
+
+  void visitFillRect(Rect r, Color c, BlendMode, u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, c);
+  }
+
+  void visitStrokeRect(Rect r, Color c, f32 width, BlendMode,
+                       u8 opacity) override {
+    applyOpacity(c, opacity);
+    float w = width > 0 ? width : 1.0f;
+    pushQuad(r.x, r.y, r.x + r.w, r.y + w, c);
+    pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, c);
+    pushQuad(r.x, r.y + w, r.x + w, r.y + r.h - w, c);
+    pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, c);
+  }
+
+  void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode,
+                 u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushLine(p1.x, p1.y, p2.x, p2.y, c, width > 0 ? width : 1.0f);
+  }
+
+  void visitPolyline(const Point *pts, i32 count, Color c, f32 width, BlendMode,
+                     u8 opacity) override {
+    applyOpacity(c, opacity);
+    float w = width > 0 ? width : 1.0f;
+    for (i32 i = 0; i + 1 < count; ++i)
+      pushLine(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, c, w);
+  }
+
+  void visitText(Point p, const char *text, u32 len, Color c, BlendMode,
+                 u8) override {
+    flushColorBatch();
+    if (glyphCache_) {
+      i32 tw = glyphCache_->measureText(std::string_view(text, len));
+      i32 th = glyphCache_->lineHeight();
+      if (tw > 0 && th > 0) {
+        std::vector<u32> buf(tw * th, 0);
+        glyphCache_->drawText(buf.data(), tw, th, 0, 0,
+                              std::string_view(text, len), c);
+        ensureTempTexture(tw, th);
+        MTLRegion region = MTLRegionMake2D(0, 0, tw, th);
+        [tempTexture_ replaceRegion:region
+                        mipmapLevel:0
+                          withBytes:buf.data()
+                        bytesPerRow:tw * 4];
+        float x = p.x, y = p.y - th;
+        pushTexQuad(x, y, x + tw, y + th, 0, 0, 1, 1);
+        flushTexBatch(tempTexture_);
+      }
     }
+  }
 
-    void resize(i32 w, i32 h) override {
-        framebuffer_.resize(device_, w, h);
+  void visitDrawImage(const Image *image, f32 x, f32 y, BlendMode,
+                      u8) override {
+    flushColorBatch();
+    if (image && image->valid()) {
+      id<MTLTexture> tex = textureCache_.resolve(device_, image);
+      if (tex) {
+        float w = float(image->width()), h = float(image->height());
+        pushTexQuad(x, y, x + w, y + h, 0, 0, 1, 1);
+        flushTexBatch(tex);
+      }
     }
+  }
 
-    void setGlyphCache(GlyphCache* cache) override { glyphCache_ = cache; }
+  void visitSetClip(Rect r) override {
+    flushColorBatch();
+    if (encoder_) {
+      NSUInteger fbW = NSUInteger(framebuffer_.width);
+      NSUInteger fbH = NSUInteger(framebuffer_.height);
 
-    void execute(const Recording& recording, const DrawPass& pass) override {
-        currentRecording_ = &recording;
-        recording.dispatch(*this, pass);
-        flushColorBatch();
-        currentRecording_ = nullptr;
+      NSUInteger sx = NSUInteger(std::max(0.0f, r.x));
+      NSUInteger sy = NSUInteger(std::max(0.0f, r.y));
 
-        // Commit the command buffer after executing all draw ops
-        commitIfNeeded();
+      // Clamp origin to framebuffer bounds to avoid unsigned underflow
+      if (sx >= fbW)
+        sx = fbW;
+      if (sy >= fbH)
+        sy = fbH;
+
+      NSUInteger sw = NSUInteger(std::max(0.0f, r.w));
+      NSUInteger sh = NSUInteger(std::max(0.0f, r.h));
+
+      if (sx + sw > fbW)
+        sw = fbW - sx;
+      if (sy + sh > fbH)
+        sh = fbH - sy;
+
+      MTLScissorRect scissor = {sx, sy, sw, sh};
+      [encoder_ setScissorRect:scissor];
     }
+  }
 
-    // DrawOpVisitor interface
-    void applyOpacity(Color& c, u8 opacity) {
-        c.a = u8(c.a * opacity / 255);
+  void visitSetClipPath(const Path &, u8, bool) override { flushColorBatch(); }
+
+  void visitClearClip() override {
+    flushColorBatch();
+    if (encoder_) {
+      MTLScissorRect fullRect;
+      fullRect.x = 0;
+      fullRect.y = 0;
+      fullRect.width = NSUInteger(framebuffer_.width);
+      fullRect.height = NSUInteger(framebuffer_.height);
+      [encoder_ setScissorRect:fullRect];
     }
+  }
 
-    void visitFillRect(Rect r, Color c, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushQuad(r.x, r.y, r.x + r.w, r.y + r.h, c);
+  void visitSetTransform(const Matrix &) override { flushColorBatch(); }
+
+  void visitClearTransform() override { flushColorBatch(); }
+
+  void visitFillPath(const Path &, Color, BlendMode, u8, u8, bool,
+                     const Shader *, const ColorFilter *) override {
+    flushColorBatch();
+  }
+
+  void visitStrokePath(const Path &, Color, f32, BlendMode, u8, u8, u8, f32,
+                       bool, const Shader *, const ColorFilter *) override {
+    flushColorBatch();
+  }
+
+  void visitDrawImageRect(const Image *image, Rect src, Rect dst,
+                          BlendMode blend, u8 opacity, FilterQuality) override {
+    (void)blend;
+    (void)opacity;
+    flushColorBatch();
+    if (image && image->valid()) {
+      id<MTLTexture> tex = textureCache_.resolve(device_, image);
+      if (tex) {
+        float iw = float(image->width()), ih = float(image->height());
+        float u0 = src.x / iw, v0 = src.y / ih;
+        float u1 = (src.x + src.w) / iw, v1 = (src.y + src.h) / ih;
+        pushTexQuad(dst.x, dst.y, dst.x + dst.w, dst.y + dst.h, u0, v0, u1, v1);
+        flushTexBatch(tex);
+      }
     }
+  }
 
-    void visitStrokeRect(Rect r, Color c, f32 width, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        float w = width > 0 ? width : 1.0f;
-        pushQuad(r.x, r.y, r.x + r.w, r.y + w, c);
-        pushQuad(r.x, r.y + r.h - w, r.x + r.w, r.y + r.h, c);
-        pushQuad(r.x, r.y + w, r.x + w, r.y + r.h - w, c);
-        pushQuad(r.x + r.w - w, r.y + w, r.x + r.w, r.y + r.h - w, c);
+  void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode,
+                       u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushCircleFan(cx, cy, radius, c, 48);
+  }
+
+  void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width,
+                         BlendMode, u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushCircleRing(cx, cy, radius, c, width > 0 ? width : 1.0f, 48);
+  }
+
+  void visitFillRoundRect(Rect r, f32 rx, f32 ry, Color c, BlendMode,
+                          u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushRoundRectFill(r, rx, ry, c, 16);
+  }
+
+  void visitStrokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width,
+                            BlendMode, u8 opacity) override {
+    applyOpacity(c, opacity);
+    pushRoundRectStroke(r, rx, ry, c, width > 0 ? width : 1.0f, 16);
+  }
+
+  std::shared_ptr<Image> makeSnapshot() const override {
+    if (framebuffer_.width <= 0 || framebuffer_.height <= 0 ||
+        !framebuffer_.texture)
+      return nullptr;
+
+    // Create a managed texture to read back
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                     width:framebuffer_.width
+                                    height:framebuffer_.height
+                                 mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModeManaged;
+
+    id<MTLTexture> snapshot = [device_ newTextureWithDescriptor:desc];
+    if (!snapshot)
+      return nullptr;
+
+    // Blit copy
+    id<MTLCommandBuffer> cmdBuf = [commandQueue_ commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+    [blit copyFromTexture:framebuffer_.texture
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(framebuffer_.width, framebuffer_.height,
+                                      1)
+                toTexture:snapshot
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit synchronizeTexture:snapshot slice:0 level:0];
+    [blit endEncoding];
+    [cmdBuf commit];
+    [cmdBuf waitUntilCompleted];
+
+    // Read pixels into CPU buffer
+    i32 w = framebuffer_.width, h = framebuffer_.height;
+    auto pixmap = Pixmap::Alloc(PixmapInfo::MakeBGRA(w, h));
+    MTLRegion region = MTLRegionMake2D(0, 0, w, h);
+    [snapshot getBytes:pixmap.addr()
+           bytesPerRow:w * 4
+            fromRegion:region
+           mipmapLevel:0];
+
+    return Image::MakeFromPixmap(pixmap);
+  }
+
+  void readPixels(void *dst, i32 x, i32 y, i32 w, i32 h) const override {
+    if (!framebuffer_.texture || !dst)
+      return;
+
+    // Create managed texture for readback
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                     width:w
+                                    height:h
+                                 mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModeManaged;
+
+    id<MTLTexture> readTex = [device_ newTextureWithDescriptor:desc];
+    if (!readTex)
+      return;
+
+    id<MTLCommandBuffer> cmdBuf = [commandQueue_ commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+    [blit copyFromTexture:framebuffer_.texture
+              sourceSlice:0
+              sourceLevel:0
+             sourceOrigin:MTLOriginMake(x, y, 0)
+               sourceSize:MTLSizeMake(w, h, 1)
+                toTexture:readTex
+         destinationSlice:0
+         destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit synchronizeTexture:readTex slice:0 level:0];
+    [blit endEncoding];
+    [cmdBuf commit];
+    [cmdBuf waitUntilCompleted];
+
+    MTLRegion region = MTLRegionMake2D(0, 0, w, h);
+    [readTex getBytes:dst bytesPerRow:w * 4 fromRegion:region mipmapLevel:0];
+  }
+
+  u64 resolveImageTexture(const Image *image) override {
+    id<MTLTexture> tex = textureCache_.resolve(device_, image);
+    // Return as opaque handle
+    return tex ? reinterpret_cast<u64>((__bridge void *)tex) : 0;
+  }
+
+  // Batching helpers
+  void pushQuad(float x0, float y0, float x1, float y1, Color c) {
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f,
+          a = c.a / 255.0f;
+    colorVerts_.insert(colorVerts_.end(), {{x0, y0, r, g, b, a},
+                                           {x1, y0, r, g, b, a},
+                                           {x0, y1, r, g, b, a},
+                                           {x1, y0, r, g, b, a},
+                                           {x1, y1, r, g, b, a},
+                                           {x0, y1, r, g, b, a}});
+  }
+
+  void pushLine(float x0, float y0, float x1, float y1, Color c, float width) {
+    float dx = x1 - x0, dy = y1 - y0, len = std::sqrt(dx * dx + dy * dy);
+    if (len < 0.0001f)
+      return;
+    float hw = width * 0.5f, nx = -dy / len * hw, ny = dx / len * hw;
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f,
+          a = c.a / 255.0f;
+    colorVerts_.insert(colorVerts_.end(), {{x0 + nx, y0 + ny, r, g, b, a},
+                                           {x0 - nx, y0 - ny, r, g, b, a},
+                                           {x1 + nx, y1 + ny, r, g, b, a},
+                                           {x0 - nx, y0 - ny, r, g, b, a},
+                                           {x1 - nx, y1 - ny, r, g, b, a},
+                                           {x1 + nx, y1 + ny, r, g, b, a}});
+  }
+
+  void pushTexQuad(float x0, float y0, float x1, float y1, float u0, float v0,
+                   float u1, float v1) {
+    texVerts_.insert(texVerts_.end(), {{x0, y0, u0, v0},
+                                       {x1, y0, u1, v0},
+                                       {x0, y1, u0, v1},
+                                       {x1, y0, u1, v0},
+                                       {x1, y1, u1, v1},
+                                       {x0, y1, u0, v1}});
+  }
+
+  void pushCircleFan(float cx, float cy, float radius, Color c, int segments) {
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f,
+          a = c.a / 255.0f;
+    float step = 2.0f * 3.14159265f / segments;
+    for (int i = 0; i < segments; ++i) {
+      float a0 = i * step, a1 = (i + 1) * step;
+      float x0 = cx + radius * std::cos(a0), y0 = cy + radius * std::sin(a0);
+      float x1 = cx + radius * std::cos(a1), y1 = cy + radius * std::sin(a1);
+      colorVerts_.insert(
+          colorVerts_.end(),
+          {{cx, cy, r, g, b, a}, {x0, y0, r, g, b, a}, {x1, y1, r, g, b, a}});
     }
+  }
 
-    void visitLine(Point p1, Point p2, Color c, f32 width, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushLine(p1.x, p1.y, p2.x, p2.y, c, width > 0 ? width : 1.0f);
+  void pushCircleRing(float cx, float cy, float radius, Color c, float width,
+                      int segments) {
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f,
+          a = c.a / 255.0f;
+    float hw = width * 0.5f;
+    float outerR = radius + hw, innerR = radius - hw;
+    if (innerR < 0)
+      innerR = 0;
+    float step = 2.0f * 3.14159265f / segments;
+    for (int i = 0; i < segments; ++i) {
+      float a0 = i * step, a1 = (i + 1) * step;
+      float cos0 = std::cos(a0), sin0 = std::sin(a0);
+      float cos1 = std::cos(a1), sin1 = std::sin(a1);
+      float ox0 = cx + outerR * cos0, oy0 = cy + outerR * sin0;
+      float ox1 = cx + outerR * cos1, oy1 = cy + outerR * sin1;
+      float ix0 = cx + innerR * cos0, iy0 = cy + innerR * sin0;
+      float ix1 = cx + innerR * cos1, iy1 = cy + innerR * sin1;
+      colorVerts_.insert(colorVerts_.end(), {{ox0, oy0, r, g, b, a},
+                                             {ix0, iy0, r, g, b, a},
+                                             {ox1, oy1, r, g, b, a},
+                                             {ix0, iy0, r, g, b, a},
+                                             {ix1, iy1, r, g, b, a},
+                                             {ox1, oy1, r, g, b, a}});
     }
+  }
 
-    void visitPolyline(const Point* pts, i32 count, Color c, f32 width, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        float w = width > 0 ? width : 1.0f;
-        for (i32 i = 0; i + 1 < count; ++i)
-            pushLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y, c, w);
+  void pushRoundRectFill(Rect rect, float rx, float ry, Color c,
+                         int cornerSegs) {
+    rx = std::min(rx, rect.w * 0.5f);
+    ry = std::min(ry, rect.h * 0.5f);
+    float r = c.r / 255.0f, g = c.g / 255.0f, b = c.b / 255.0f,
+          a = c.a / 255.0f;
+    float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+
+    // Center cross
+    pushQuad(x + rx, y, x + w - rx, y + h, c);
+    pushQuad(x, y + ry, x + rx, y + h - ry, c);
+    pushQuad(x + w - rx, y + ry, x + w, y + h - ry, c);
+
+    // Four corner fans
+    float step = (3.14159265f * 0.5f) / cornerSegs;
+    struct Corner {
+      float cx, cy;
+      float startAngle;
+    };
+    Corner corners[4] = {{x + rx, y + ry, 3.14159265f},
+                         {x + w - rx, y + ry, 3.14159265f * 1.5f},
+                         {x + w - rx, y + h - ry, 0.0f},
+                         {x + rx, y + h - ry, 3.14159265f * 0.5f}};
+    for (auto &co : corners) {
+      for (int i = 0; i < cornerSegs; ++i) {
+        float a0 = co.startAngle + i * step;
+        float a1 = co.startAngle + (i + 1) * step;
+        float px0 = co.cx + rx * std::cos(a0), py0 = co.cy + ry * std::sin(a0);
+        float px1 = co.cx + rx * std::cos(a1), py1 = co.cy + ry * std::sin(a1);
+        colorVerts_.insert(colorVerts_.end(), {{co.cx, co.cy, r, g, b, a},
+                                               {px0, py0, r, g, b, a},
+                                               {px1, py1, r, g, b, a}});
+      }
     }
+  }
 
-    void visitText(Point p, const char* text, u32 len, Color c, BlendMode, u8) override {
-        flushColorBatch();
-        if (glyphCache_) {
-            i32 tw = glyphCache_->measureText(std::string_view(text, len));
-            i32 th = glyphCache_->lineHeight();
-            if (tw > 0 && th > 0) {
-                std::vector<u32> buf(tw * th, 0);
-                glyphCache_->drawText(buf.data(), tw, th, 0, 0, std::string_view(text, len), c);
-                ensureTempTexture(tw, th);
-                MTLRegion region = MTLRegionMake2D(0, 0, tw, th);
-                [tempTexture_ replaceRegion:region mipmapLevel:0
-                                  withBytes:buf.data() bytesPerRow:tw * 4];
-                float x = p.x, y = p.y - th;
-                pushTexQuad(x, y, x + tw, y + th, 0, 0, 1, 1);
-                flushTexBatch(tempTexture_);
-            }
-        }
+  void pushRoundRectStroke(Rect rect, float rx, float ry, Color c, float width,
+                           int cornerSegs) {
+    rx = std::min(rx, rect.w * 0.5f);
+    ry = std::min(ry, rect.h * 0.5f);
+    float cr = c.r / 255.0f, cg = c.g / 255.0f, cb = c.b / 255.0f,
+          ca = c.a / 255.0f;
+    float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
+    float hw = width * 0.5f;
+
+    // Edges
+    pushQuad(x + rx, y - hw, x + w - rx, y + hw, c);
+    pushQuad(x + rx, y + h - hw, x + w - rx, y + h + hw, c);
+    pushQuad(x - hw, y + ry, x + hw, y + h - ry, c);
+    pushQuad(x + w - hw, y + ry, x + w + hw, y + h - ry, c);
+
+    // Corner arcs
+    float step = (3.14159265f * 0.5f) / cornerSegs;
+    struct Corner {
+      float cx, cy;
+      float startAngle;
+    };
+    Corner corners[4] = {{x + rx, y + ry, 3.14159265f},
+                         {x + w - rx, y + ry, 3.14159265f * 1.5f},
+                         {x + w - rx, y + h - ry, 0.0f},
+                         {x + rx, y + h - ry, 3.14159265f * 0.5f}};
+    float outerRx = rx + hw, outerRy = ry + hw;
+    float innerRx = rx - hw, innerRy = ry - hw;
+    if (innerRx < 0)
+      innerRx = 0;
+    if (innerRy < 0)
+      innerRy = 0;
+    for (auto &co : corners) {
+      for (int i = 0; i < cornerSegs; ++i) {
+        float a0 = co.startAngle + i * step;
+        float a1 = co.startAngle + (i + 1) * step;
+        float cos0 = std::cos(a0), sin0 = std::sin(a0);
+        float cos1 = std::cos(a1), sin1 = std::sin(a1);
+        float ox0 = co.cx + outerRx * cos0, oy0 = co.cy + outerRy * sin0;
+        float ox1 = co.cx + outerRx * cos1, oy1 = co.cy + outerRy * sin1;
+        float ix0 = co.cx + innerRx * cos0, iy0 = co.cy + innerRy * sin0;
+        float ix1 = co.cx + innerRx * cos1, iy1 = co.cy + innerRy * sin1;
+        colorVerts_.insert(colorVerts_.end(), {{ox0, oy0, cr, cg, cb, ca},
+                                               {ix0, iy0, cr, cg, cb, ca},
+                                               {ox1, oy1, cr, cg, cb, ca},
+                                               {ix0, iy0, cr, cg, cb, ca},
+                                               {ix1, iy1, cr, cg, cb, ca},
+                                               {ox1, oy1, cr, cg, cb, ca}});
+      }
     }
+  }
 
-    void visitDrawImage(const Image* image, f32 x, f32 y, BlendMode, u8) override {
-        flushColorBatch();
-        if (image && image->valid()) {
-            id<MTLTexture> tex = textureCache_.resolve(device_, image);
-            if (tex) {
-                float w = float(image->width()), h = float(image->height());
-                pushTexQuad(x, y, x + w, y + h, 0, 0, 1, 1);
-                flushTexBatch(tex);
-            }
-        }
+  void flushColorBatch() {
+    if (colorVerts_.empty() || !encoder_)
+      return;
+
+    simd_float4x4 proj = metalOrthoProjection(float(framebuffer_.width),
+                                              float(framebuffer_.height));
+
+    [encoder_ setRenderPipelineState:colorPipeline_.state];
+    NSUInteger dataLen = colorVerts_.size() * sizeof(MetalColorVertex);
+    if (dataLen <= 4096) {
+      [encoder_ setVertexBytes:colorVerts_.data() length:dataLen atIndex:0];
+    } else {
+      id<MTLBuffer> buf =
+          [device_ newBufferWithBytes:colorVerts_.data()
+                               length:dataLen
+                              options:MTLResourceStorageModeShared];
+      [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
     }
+    [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
+    [encoder_ drawPrimitives:MTLPrimitiveTypeTriangle
+                 vertexStart:0
+                 vertexCount:colorVerts_.size()];
+    colorVerts_.clear();
+  }
 
-    void visitSetClip(Rect r) override {
-        flushColorBatch();
-        if (encoder_) {
-            NSUInteger fbW = NSUInteger(framebuffer_.width);
-            NSUInteger fbH = NSUInteger(framebuffer_.height);
-
-            NSUInteger sx = NSUInteger(std::max(0.0f, r.x));
-            NSUInteger sy = NSUInteger(std::max(0.0f, r.y));
-
-            // Clamp origin to framebuffer bounds to avoid unsigned underflow
-            if (sx >= fbW) sx = fbW;
-            if (sy >= fbH) sy = fbH;
-
-            NSUInteger sw = NSUInteger(std::max(0.0f, r.w));
-            NSUInteger sh = NSUInteger(std::max(0.0f, r.h));
-
-            if (sx + sw > fbW) sw = fbW - sx;
-            if (sy + sh > fbH) sh = fbH - sy;
-
-            MTLScissorRect scissor = { sx, sy, sw, sh };
-            [encoder_ setScissorRect:scissor];
-        }
+  void commitIfNeeded() {
+    if (encoder_) {
+      [encoder_ endEncoding];
+      encoder_ = nil;
     }
-
-    void visitClearClip() override {
-        flushColorBatch();
-        if (encoder_) {
-            MTLScissorRect fullRect;
-            fullRect.x = 0;
-            fullRect.y = 0;
-            fullRect.width = NSUInteger(framebuffer_.width);
-            fullRect.height = NSUInteger(framebuffer_.height);
-            [encoder_ setScissorRect:fullRect];
-        }
+    if (commandBuffer_) {
+      [commandBuffer_ commit];
+      [commandBuffer_ waitUntilCompleted];
+      commandBuffer_ = nil;
     }
+  }
 
-    void visitSetTransform(const Matrix&) override {
-        flushColorBatch();
+  void flushTexBatch(id<MTLTexture> tex) {
+    if (texVerts_.empty() || !encoder_ || !tex)
+      return;
+
+    simd_float4x4 proj = metalOrthoProjection(float(framebuffer_.width),
+                                              float(framebuffer_.height));
+
+    [encoder_ setRenderPipelineState:texPipeline_.state];
+    NSUInteger dataLen = texVerts_.size() * sizeof(MetalTexVertex);
+    if (dataLen <= 4096) {
+      [encoder_ setVertexBytes:texVerts_.data() length:dataLen atIndex:0];
+    } else {
+      id<MTLBuffer> buf =
+          [device_ newBufferWithBytes:texVerts_.data()
+                               length:dataLen
+                              options:MTLResourceStorageModeShared];
+      [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
     }
+    [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
+    [encoder_ setFragmentTexture:tex atIndex:0];
+    [encoder_ setFragmentSamplerState:sampler_ atIndex:0];
+    [encoder_ drawPrimitives:MTLPrimitiveTypeTriangle
+                 vertexStart:0
+                 vertexCount:texVerts_.size()];
+    texVerts_.clear();
+  }
 
-    void visitClearTransform() override {
-        flushColorBatch();
+  void ensureTempTexture(i32 w, i32 h) {
+    if (tempTexture_ && (i32)[tempTexture_ width] >= w &&
+        (i32)[tempTexture_ height] >= h) {
+      return;
     }
-
-    void visitFillCircle(f32 cx, f32 cy, f32 radius, Color c, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushCircleFan(cx, cy, radius, c, 48);
-    }
-
-    void visitStrokeCircle(f32 cx, f32 cy, f32 radius, Color c, f32 width, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushCircleRing(cx, cy, radius, c, width > 0 ? width : 1.0f, 48);
-    }
-
-    void visitFillRoundRect(Rect r, f32 rx, f32 ry, Color c, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushRoundRectFill(r, rx, ry, c, 16);
-    }
-
-    void visitStrokeRoundRect(Rect r, f32 rx, f32 ry, Color c, f32 width, BlendMode, u8 opacity) override {
-        applyOpacity(c, opacity);
-        pushRoundRectStroke(r, rx, ry, c, width > 0 ? width : 1.0f, 16);
-    }
-
-    std::shared_ptr<Image> makeSnapshot() const override {
-        if (framebuffer_.width <= 0 || framebuffer_.height <= 0 || !framebuffer_.texture)
-            return nullptr;
-
-        // Create a managed texture to read back
-        MTLTextureDescriptor* desc = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-            width:framebuffer_.width height:framebuffer_.height mipmapped:NO];
-        desc.usage = MTLTextureUsageShaderRead;
-        desc.storageMode = MTLStorageModeManaged;
-
-        id<MTLTexture> snapshot = [device_ newTextureWithDescriptor:desc];
-        if (!snapshot) return nullptr;
-
-        // Blit copy
-        id<MTLCommandBuffer> cmdBuf = [commandQueue_ commandBuffer];
-        id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
-        [blit copyFromTexture:framebuffer_.texture
-                  sourceSlice:0 sourceLevel:0
-                 sourceOrigin:MTLOriginMake(0, 0, 0)
-                   sourceSize:MTLSizeMake(framebuffer_.width, framebuffer_.height, 1)
-                    toTexture:snapshot
-             destinationSlice:0 destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
-        [blit synchronizeTexture:snapshot slice:0 level:0];
-        [blit endEncoding];
-        [cmdBuf commit];
-        [cmdBuf waitUntilCompleted];
-
-        // Read pixels into CPU buffer
-        i32 w = framebuffer_.width, h = framebuffer_.height;
-        auto pixmap = Pixmap::Alloc(PixmapInfo::MakeBGRA(w, h));
-        MTLRegion region = MTLRegionMake2D(0, 0, w, h);
-        [snapshot getBytes:pixmap.addr() bytesPerRow:w * 4 fromRegion:region mipmapLevel:0];
-
-        return Image::MakeFromPixmap(pixmap);
-    }
-
-    void readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const override {
-        if (!framebuffer_.texture || !dst) return;
-
-        // Create managed texture for readback
-        MTLTextureDescriptor* desc = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-            width:w height:h mipmapped:NO];
-        desc.usage = MTLTextureUsageShaderRead;
-        desc.storageMode = MTLStorageModeManaged;
-
-        id<MTLTexture> readTex = [device_ newTextureWithDescriptor:desc];
-        if (!readTex) return;
-
-        id<MTLCommandBuffer> cmdBuf = [commandQueue_ commandBuffer];
-        id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
-        [blit copyFromTexture:framebuffer_.texture
-                  sourceSlice:0 sourceLevel:0
-                 sourceOrigin:MTLOriginMake(x, y, 0)
-                   sourceSize:MTLSizeMake(w, h, 1)
-                    toTexture:readTex
-             destinationSlice:0 destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
-        [blit synchronizeTexture:readTex slice:0 level:0];
-        [blit endEncoding];
-        [cmdBuf commit];
-        [cmdBuf waitUntilCompleted];
-
-        MTLRegion region = MTLRegionMake2D(0, 0, w, h);
-        [readTex getBytes:dst bytesPerRow:w * 4 fromRegion:region mipmapLevel:0];
-    }
-
-    u64 resolveImageTexture(const Image* image) override {
-        id<MTLTexture> tex = textureCache_.resolve(device_, image);
-        // Return as opaque handle
-        return tex ? reinterpret_cast<u64>((__bridge void*)tex) : 0;
-    }
-
-    // Batching helpers
-    void pushQuad(float x0, float y0, float x1, float y1, Color c) {
-        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        colorVerts_.insert(colorVerts_.end(), {
-            {x0,y0,r,g,b,a}, {x1,y0,r,g,b,a}, {x0,y1,r,g,b,a},
-            {x1,y0,r,g,b,a}, {x1,y1,r,g,b,a}, {x0,y1,r,g,b,a}
-        });
-    }
-
-    void pushLine(float x0, float y0, float x1, float y1, Color c, float width) {
-        float dx = x1-x0, dy = y1-y0, len = std::sqrt(dx*dx + dy*dy);
-        if (len < 0.0001f) return;
-        float hw = width * 0.5f, nx = -dy/len*hw, ny = dx/len*hw;
-        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        colorVerts_.insert(colorVerts_.end(), {
-            {x0+nx,y0+ny,r,g,b,a}, {x0-nx,y0-ny,r,g,b,a}, {x1+nx,y1+ny,r,g,b,a},
-            {x0-nx,y0-ny,r,g,b,a}, {x1-nx,y1-ny,r,g,b,a}, {x1+nx,y1+ny,r,g,b,a}
-        });
-    }
-
-    void pushTexQuad(float x0, float y0, float x1, float y1,
-                     float u0, float v0, float u1, float v1) {
-        texVerts_.insert(texVerts_.end(), {
-            {x0,y0,u0,v0}, {x1,y0,u1,v0}, {x0,y1,u0,v1},
-            {x1,y0,u1,v0}, {x1,y1,u1,v1}, {x0,y1,u0,v1}
-        });
-    }
-
-    void pushCircleFan(float cx, float cy, float radius, Color c, int segments) {
-        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        float step = 2.0f * 3.14159265f / segments;
-        for (int i = 0; i < segments; ++i) {
-            float a0 = i * step, a1 = (i + 1) * step;
-            float x0 = cx + radius * std::cos(a0), y0 = cy + radius * std::sin(a0);
-            float x1 = cx + radius * std::cos(a1), y1 = cy + radius * std::sin(a1);
-            colorVerts_.insert(colorVerts_.end(), {
-                {cx, cy, r, g, b, a}, {x0, y0, r, g, b, a}, {x1, y1, r, g, b, a}
-            });
-        }
-    }
-
-    void pushCircleRing(float cx, float cy, float radius, Color c, float width, int segments) {
-        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        float hw = width * 0.5f;
-        float outerR = radius + hw, innerR = radius - hw;
-        if (innerR < 0) innerR = 0;
-        float step = 2.0f * 3.14159265f / segments;
-        for (int i = 0; i < segments; ++i) {
-            float a0 = i * step, a1 = (i + 1) * step;
-            float cos0 = std::cos(a0), sin0 = std::sin(a0);
-            float cos1 = std::cos(a1), sin1 = std::sin(a1);
-            float ox0 = cx + outerR * cos0, oy0 = cy + outerR * sin0;
-            float ox1 = cx + outerR * cos1, oy1 = cy + outerR * sin1;
-            float ix0 = cx + innerR * cos0, iy0 = cy + innerR * sin0;
-            float ix1 = cx + innerR * cos1, iy1 = cy + innerR * sin1;
-            colorVerts_.insert(colorVerts_.end(), {
-                {ox0, oy0, r, g, b, a}, {ix0, iy0, r, g, b, a}, {ox1, oy1, r, g, b, a},
-                {ix0, iy0, r, g, b, a}, {ix1, iy1, r, g, b, a}, {ox1, oy1, r, g, b, a}
-            });
-        }
-    }
-
-    void pushRoundRectFill(Rect rect, float rx, float ry, Color c, int cornerSegs) {
-        rx = std::min(rx, rect.w * 0.5f);
-        ry = std::min(ry, rect.h * 0.5f);
-        float r = c.r/255.0f, g = c.g/255.0f, b = c.b/255.0f, a = c.a/255.0f;
-        float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
-
-        // Center cross
-        pushQuad(x + rx, y, x + w - rx, y + h, c);
-        pushQuad(x, y + ry, x + rx, y + h - ry, c);
-        pushQuad(x + w - rx, y + ry, x + w, y + h - ry, c);
-
-        // Four corner fans
-        float step = (3.14159265f * 0.5f) / cornerSegs;
-        struct Corner { float cx, cy; float startAngle; };
-        Corner corners[4] = {
-            {x + rx,     y + ry,     3.14159265f},
-            {x + w - rx, y + ry,     3.14159265f * 1.5f},
-            {x + w - rx, y + h - ry, 0.0f},
-            {x + rx,     y + h - ry, 3.14159265f * 0.5f}
-        };
-        for (auto& co : corners) {
-            for (int i = 0; i < cornerSegs; ++i) {
-                float a0 = co.startAngle + i * step;
-                float a1 = co.startAngle + (i + 1) * step;
-                float px0 = co.cx + rx * std::cos(a0), py0 = co.cy + ry * std::sin(a0);
-                float px1 = co.cx + rx * std::cos(a1), py1 = co.cy + ry * std::sin(a1);
-                colorVerts_.insert(colorVerts_.end(), {
-                    {co.cx, co.cy, r, g, b, a}, {px0, py0, r, g, b, a}, {px1, py1, r, g, b, a}
-                });
-            }
-        }
-    }
-
-    void pushRoundRectStroke(Rect rect, float rx, float ry, Color c, float width, int cornerSegs) {
-        rx = std::min(rx, rect.w * 0.5f);
-        ry = std::min(ry, rect.h * 0.5f);
-        float cr = c.r/255.0f, cg = c.g/255.0f, cb = c.b/255.0f, ca = c.a/255.0f;
-        float x = rect.x, y = rect.y, w = rect.w, h = rect.h;
-        float hw = width * 0.5f;
-
-        // Edges
-        pushQuad(x + rx, y - hw, x + w - rx, y + hw, c);
-        pushQuad(x + rx, y + h - hw, x + w - rx, y + h + hw, c);
-        pushQuad(x - hw, y + ry, x + hw, y + h - ry, c);
-        pushQuad(x + w - hw, y + ry, x + w + hw, y + h - ry, c);
-
-        // Corner arcs
-        float step = (3.14159265f * 0.5f) / cornerSegs;
-        struct Corner { float cx, cy; float startAngle; };
-        Corner corners[4] = {
-            {x + rx,     y + ry,     3.14159265f},
-            {x + w - rx, y + ry,     3.14159265f * 1.5f},
-            {x + w - rx, y + h - ry, 0.0f},
-            {x + rx,     y + h - ry, 3.14159265f * 0.5f}
-        };
-        float outerRx = rx + hw, outerRy = ry + hw;
-        float innerRx = rx - hw, innerRy = ry - hw;
-        if (innerRx < 0) innerRx = 0;
-        if (innerRy < 0) innerRy = 0;
-        for (auto& co : corners) {
-            for (int i = 0; i < cornerSegs; ++i) {
-                float a0 = co.startAngle + i * step;
-                float a1 = co.startAngle + (i + 1) * step;
-                float cos0 = std::cos(a0), sin0 = std::sin(a0);
-                float cos1 = std::cos(a1), sin1 = std::sin(a1);
-                float ox0 = co.cx + outerRx * cos0, oy0 = co.cy + outerRy * sin0;
-                float ox1 = co.cx + outerRx * cos1, oy1 = co.cy + outerRy * sin1;
-                float ix0 = co.cx + innerRx * cos0, iy0 = co.cy + innerRy * sin0;
-                float ix1 = co.cx + innerRx * cos1, iy1 = co.cy + innerRy * sin1;
-                colorVerts_.insert(colorVerts_.end(), {
-                    {ox0, oy0, cr, cg, cb, ca}, {ix0, iy0, cr, cg, cb, ca}, {ox1, oy1, cr, cg, cb, ca},
-                    {ix0, iy0, cr, cg, cb, ca}, {ix1, iy1, cr, cg, cb, ca}, {ox1, oy1, cr, cg, cb, ca}
-                });
-            }
-        }
-    }
-
-    void flushColorBatch() {
-        if (colorVerts_.empty() || !encoder_) return;
-
-        simd_float4x4 proj = metalOrthoProjection(
-            float(framebuffer_.width), float(framebuffer_.height));
-
-        [encoder_ setRenderPipelineState:colorPipeline_.state];
-        NSUInteger dataLen = colorVerts_.size() * sizeof(MetalColorVertex);
-        if (dataLen <= 4096) {
-            [encoder_ setVertexBytes:colorVerts_.data() length:dataLen atIndex:0];
-        } else {
-            id<MTLBuffer> buf = [device_ newBufferWithBytes:colorVerts_.data()
-                                                    length:dataLen
-                                                   options:MTLResourceStorageModeShared];
-            [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
-        }
-        [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
-        [encoder_ drawPrimitives:MTLPrimitiveTypeTriangle
-                     vertexStart:0
-                     vertexCount:colorVerts_.size()];
-        colorVerts_.clear();
-    }
-
-    void commitIfNeeded() {
-        if (encoder_) {
-            [encoder_ endEncoding];
-            encoder_ = nil;
-        }
-        if (commandBuffer_) {
-            [commandBuffer_ commit];
-            [commandBuffer_ waitUntilCompleted];
-            commandBuffer_ = nil;
-        }
-    }
-
-    void flushTexBatch(id<MTLTexture> tex) {
-        if (texVerts_.empty() || !encoder_ || !tex) return;
-
-        simd_float4x4 proj = metalOrthoProjection(
-            float(framebuffer_.width), float(framebuffer_.height));
-
-        [encoder_ setRenderPipelineState:texPipeline_.state];
-        NSUInteger dataLen = texVerts_.size() * sizeof(MetalTexVertex);
-        if (dataLen <= 4096) {
-            [encoder_ setVertexBytes:texVerts_.data() length:dataLen atIndex:0];
-        } else {
-            id<MTLBuffer> buf = [device_ newBufferWithBytes:texVerts_.data()
-                                                    length:dataLen
-                                                   options:MTLResourceStorageModeShared];
-            [encoder_ setVertexBuffer:buf offset:0 atIndex:0];
-        }
-        [encoder_ setVertexBytes:&proj length:sizeof(proj) atIndex:1];
-        [encoder_ setFragmentTexture:tex atIndex:0];
-        [encoder_ setFragmentSamplerState:sampler_ atIndex:0];
-        [encoder_ drawPrimitives:MTLPrimitiveTypeTriangle
-                     vertexStart:0
-                     vertexCount:texVerts_.size()];
-        texVerts_.clear();
-    }
-
-    void ensureTempTexture(i32 w, i32 h) {
-        if (tempTexture_ &&
-            (i32)[tempTexture_ width] >= w &&
-            (i32)[tempTexture_ height] >= h) {
-            return;
-        }
-        MTLTextureDescriptor* desc = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-            width:w height:h mipmapped:NO];
-        desc.usage = MTLTextureUsageShaderRead;
-        tempTexture_ = [device_ newTextureWithDescriptor:desc];
-    }
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                     width:w
+                                    height:h
+                                 mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead;
+    tempTexture_ = [device_ newTextureWithDescriptor:desc];
+  }
 };
 
 // Factory
 namespace GpuContexts {
 
 std::shared_ptr<GpuContext> MakeMetal() {
-    auto impl = std::make_shared<MetalImpl>();
-    if (!impl->init(1, 1)) return nullptr;
-    return MakeGpuContextFromImpl(impl);
+  auto impl = std::make_shared<MetalImpl>();
+  if (!impl->init(1, 1))
+    return nullptr;
+  return MakeGpuContextFromImpl(impl);
 }
 
 } // namespace GpuContexts

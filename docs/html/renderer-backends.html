@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览 - Renderer / 后端</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>4. Renderer / 后端</strong>
+        <span>同一接口，多套执行路径</span>
+      </div>
+      <nav class="side-nav">
+        <a href="index.html">0. 总览</a>
+        <a href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a href="path-rendering.html">3. Path 渲染</a>
+        <a class="current" href="renderer-backends.html">4. Renderer / 后端</a>
+        <a href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        本页目标: 对比 CPU 与 GL 后端，不把统一 API 误解成统一实现。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero narrow">
+        <div class="wrap">
+          <div class="kicker">backend execution</div>
+          <h1>统一 API 不等于统一 renderer</h1>
+          <p class="lead">
+            ink 的用户 API 统一，但后端实现差异很大。学习后端时，不要从 README 的状态表推导能力，要从 <code>Renderer</code> 和 <code>DrawOpVisitor</code> 的实现读起。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Renderer 接口给 Surface 一个统一执行边界</h2>
+          <p class="section-lead">
+            <code>Surface::flush()</code> 只认 <code>Renderer::execute(recording, pass)</code>。至于这个 execute 是 CPU 像素循环、GL draw call，还是 Metal command encoder，是后端自己的事。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// include/ink/renderer.hpp:25-52</span>
+class Renderer {
+public:
+    virtual void beginFrame(Color clearColor) = 0;
+    virtual void endFrame() = 0;
+    virtual void execute(const Recording&amp; recording,
+                         const DrawPass&amp; pass) = 0;
+    virtual void resize(i32 w, i32 h) = 0;
+    virtual std::shared_ptr&lt;Image&gt; makeSnapshot() const = 0;
+    virtual void setGlyphCache(GlyphCache* cache) { (void)cache; }
+};</code></pre>
+            <div class="reader-task">
+              <h3>读法</h3>
+              <ol>
+                <li>先找谁继承 <code>Renderer</code>。</li>
+                <li>再找它是否也继承 <code>DrawOpVisitor</code>。</li>
+                <li>最后按 visitor 方法对比同一 op 的不同实现。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>CPU renderer: visitor 方法直接改 Pixmap</h2>
+          <p class="section-lead">
+            CPU 后端最适合学习图形基础，因为它的结果最终都是写内存中的像素。入口是 <span class="source">src/cpu_renderer.hpp:23</span>。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/cpu_renderer.hpp:23-47</span>
+class CpuRenderer : public Renderer, public DrawOpVisitor {
+public:
+  explicit CpuRenderer(Pixmap *target) : target_(target) {}
+
+  void beginFrame(Color clearColor) override {
+    if (target_ &amp;&amp; target_-&gt;valid()) {
+      isBGRA_ = (target_-&gt;format() == PixelFormat::BGRA8888);
+      target_-&gt;clear(clearColor);
+    }
+    hasClip_ = false;
+    hasPathClip_ = false;
+    clipMask_.clear();
+    currentTransform_ = Matrix::Identity();
+  }
+
+  void execute(const Recording &amp;recording,
+               const DrawPass &amp;pass) override {
+    recording.dispatch(*this, pass);
+  }
+};</code></pre>
+            <div class="reader-task">
+              <h3>关键点</h3>
+              <ol>
+                <li><code>execute</code> 不循环 op 本身，而是交给 <code>Recording::dispatch</code>。</li>
+                <li><code>*this</code> 同时是 renderer 和 visitor。</li>
+                <li>clip、transform、像素格式都是 renderer 执行期状态。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="code-grid" style="margin-top:16px">
+            <pre><code><span class="dim">// src/cpu_renderer.hpp:474-490</span>
+void blendPixel(i32 x, i32 y, Color c, BlendMode mode = BlendMode::SrcOver) {
+  if (!target_ || !target_-&gt;valid())
+    return;
+  if (x &lt; 0 || x &gt;= target_-&gt;width() ||
+      y &lt; 0 || y &gt;= target_-&gt;height())
+    return;
+  if (isClipped(x, y))
+    return;
+  if (hasPathClip_ &amp;&amp; clipMaskWidth_ &gt; 0) {
+    u8 maskAlpha = clipMask_[y * clipMaskWidth_ + x];
+    c.a = static_cast&lt;u8&gt;(c.a * maskAlpha / 255);
+    if (c.a == 0)
+      return;
+  }
+  u32 *row = static_cast&lt;u32 *&gt;(target_-&gt;rowAddr(y));
+  u32 &amp;pixel = row[x];
+  Color dst = decodePixel(pixel);
+  pixel = encodePixel(blendColors(c, dst, mode));
+}</code></pre>
+            <div class="reader-task">
+              <h3>这里是像素 contract</h3>
+              <ol>
+                <li>边界检查。</li>
+                <li>clip / path clip。</li>
+                <li>decode 目标像素。</li>
+                <li>blend。</li>
+                <li>encode 回目标格式。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>GL backend: GpuContext 是 public wrapper，GLImpl 是内部实现</h2>
+          <p class="section-lead">
+            <code>GpuContext</code> 也实现 <code>Renderer</code>，但它只是把调用转给 <code>GpuImpl</code>。GL 后端真正的执行代码在 <code>GLImpl</code>。
+          </p>
+
+          <div class="code-grid">
+            <pre><code><span class="dim">// src/gpu/gpu_context.cpp:17-31</span>
+void GpuContext::beginFrame(Color clearColor) {
+  if (impl_) impl_-&gt;beginFrame(clearColor);
+}
+
+void GpuContext::execute(const Recording&amp; r, const DrawPass&amp; p) {
+  if (impl_) impl_-&gt;execute(r, p);
+}
+
+void GpuContext::readPixels(void* dst, i32 x, i32 y, i32 w, i32 h) const {
+  if (impl_) impl_-&gt;readPixels(dst, x, y, w, h);
+}</code></pre>
+            <div class="reader-task">
+              <h3>读法</h3>
+              <ol>
+                <li><code>include/ink/gpu/gpu_context.hpp</code> 是 public API。</li>
+                <li><code>src/gpu_impl.hpp</code> 是 internal backend interface。</li>
+                <li><code>src/gpu/gl/gl_context.cpp</code> 里有具体 GL 实现。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="code-grid" style="margin-top:16px">
+            <pre><code><span class="dim">// src/gpu/gl/gl_context.cpp:297-317, 412-416</span>
+class GLImpl : public GpuImpl,
+               public GLInterop,
+               public DrawOpVisitor {
+public:
+  GLFramebuffer framebuffer_;
+  GLShaderProgram colorProgram_;
+  GLShaderProgram texProgram_;
+  GLVertexBuffer&lt;GLColorVertex&gt; colorBuffer_;
+  GLVertexBuffer&lt;GLTexVertex&gt; texBuffer_;
+  GLTextureCache textureCache_;
+  Matrix currentTransform_;
+  std::vector&lt;GLColorVertex&gt; colorVerts_;
+  std::vector&lt;GLTexVertex&gt; texVerts_;
+
+  void execute(const Recording &amp;recording,
+               const DrawPass &amp;pass) override {
+    currentRecording_ = &amp;recording;
+    recording.dispatch(*this, pass);
+    flushColorBatch();
+    currentRecording_ = nullptr;
+  }
+};</code></pre>
+            <div class="reader-task">
+              <h3>关键点</h3>
+              <ol>
+                <li>GL 也用 visitor 分发。</li>
+                <li>普通颜色绘制先 push vertex，再 batch flush。</li>
+                <li>texture、framebuffer、stencil 都是 GLImpl 的执行期资源。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>同一 op 的后端差异</h2>
+          <p class="section-lead">
+            下面这张表比“支持 CPU/GL/Metal”这种总览更有学习价值。你要养成按 op 对比后端的习惯。
+          </p>
+
+          <table class="table">
+            <thead>
+              <tr>
+                <th>DrawOp</th>
+                <th>CPU renderer</th>
+                <th>GL renderer</th>
+                <th>学习重点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>FillRect</td>
+                <td>mapRect 后逐像素 fill + blend。</td>
+                <td>pushQuad 到 color vertex batch。</td>
+                <td>CPU 是 pixel loop，GL 是 vertex geometry。</td>
+              </tr>
+              <tr>
+                <td>Line</td>
+                <td>简单 Bresenham-like loop 加宽度覆盖。</td>
+                <td>把线段扩成 quad 加入 batch。</td>
+                <td>线宽在不同后端不是同一个算法。</td>
+              </tr>
+              <tr>
+                <td>FillPath</td>
+                <td><code>PathRasterizer</code> scanline coverage。</td>
+                <td>实心 path stencil-cover；带 shader 时 CPU raster 到 texture。</td>
+                <td>性能和质量讨论必须说清路径。</td>
+              </tr>
+              <tr>
+                <td>StrokePath</td>
+                <td><code>StrokeEngine::strokePath</code> 后再 fill。</td>
+                <td>也先 stroke-to-fill，再 stencil-cover 或 texture。</td>
+                <td>stroke 算法共享，但执行方式不同。</td>
+              </tr>
+              <tr>
+                <td>DrawImage</td>
+                <td>只处理 CPU-backed image；GPU-only image 直接返回。</td>
+                <td>CPU image 上传并缓存，GPU image 直接取 texture handle。</td>
+                <td>跨后端 image interop 是真实限制。</td>
+              </tr>
+              <tr>
+                <td>ClipPath</td>
+                <td>生成 alpha mask，后续像素 alpha 乘 mask。</td>
+                <td>用 stencil bits 表达当前 clip。</td>
+                <td>同一语义，两套资源模型。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>GL path 的两条路径</h2>
+          <p class="section-lead">
+            当前 GL path 不是单一实现。没有 shader 的 path 走 stencil-cover；带 shader 的 path 走 CPU raster 到临时 texture。
+          </p>
+
+          <div class="grid two">
+            <div class="card flat">
+              <h3>实心 path: stencil then cover</h3>
+              <pre><code><span class="dim">// src/gpu/gl/gl_context.cpp:817-844</span>
+clearStencilBits(kPathStencilMask);
+stencilPathBits(contours, fillRule, clipStencilActive_);
+
+Rect bounds = boundsForContours(contours);
+glStencilMask(0x00);
+glStencilFunc(GL_NOTEQUAL, 0, kPathStencilMask);
+drawSolidRectNoTransform(bounds, color);
+
+clearStencilBits(kPathStencilMask);
+restoreClipStencilState();</code></pre>
+            </div>
+            <div class="card flat">
+              <h3>shader path: CPU raster texture</h3>
+              <pre><code><span class="dim">// src/gpu/gl/gl_context.cpp:847-869</span>
+Pixmap pm = Pixmap::Alloc(PixmapInfo::MakeRGBA(w, h));
+pm.clear({0, 0, 0, 0});
+
+PathRasterizer rasterizer;
+rasterizer.addPath(path, currentTransform_);
+rasterizer.rasterize(&amp;pm, fullBounds, color,
+                     BlendMode::Src, opacity,
+                     antiAlias, fillRule, shader, false);
+
+glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+             w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pm.addr());</code></pre>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>不要过度宣称:</strong>
+            “GL 支持 path”不等于“所有 path 都原生 GPU tessellation”。当前源码里仍有 CPU raster fallback。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>读后端时的源码清单</h2>
+          <div class="grid two">
+            <div class="card flat">
+              <h3>CPU 路线</h3>
+              <ul>
+                <li><span class="source">src/cpu_renderer.hpp:23</span> 类声明和 execute。</li>
+                <li><span class="source">src/cpu_renderer.hpp:58</span> rect / line visitor。</li>
+                <li><span class="source">src/cpu_renderer.hpp:143</span> path clip mask。</li>
+                <li><span class="source">src/cpu_renderer.hpp:303</span> fill path。</li>
+                <li><span class="source">src/cpu_renderer.hpp:420</span> blend formula。</li>
+              </ul>
+            </div>
+            <div class="card flat">
+              <h3>GL 路线</h3>
+              <ul>
+                <li><span class="source">src/gpu/gl/gl_resources.hpp</span> program、buffer、texture、FBO 封装。</li>
+                <li><span class="source">src/gpu/gl/gl_context.cpp:297</span> GLImpl 状态。</li>
+                <li><span class="source">src/gpu/gl/gl_context.cpp:419</span> blend mode 映射。</li>
+                <li><span class="source">src/gpu/gl/gl_context.cpp:762</span> stencil path bits。</li>
+                <li><span class="source">src/gpu/gl/gl_context.cpp:817</span> path stencil-cover。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="pager">
+        <a href="path-rendering.html">← 上一章: Path 渲染</a>
+        <a href="study-lab.html">下一章: 练习实验室 →</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ink 源码学习导览</title>
+  <link rel="stylesheet" href="ink-guide.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>ink 源码学习导览</strong>
+        <span>不是项目简介，是读代码路线</span>
+      </div>
+      <nav class="side-nav" aria-label="页面导航">
+        <a class="current" href="index.html">0. 总览</a>
+        <a href="frame-pipeline.html">1. 一帧生命周期</a>
+        <a href="recording-drawpass.html">2. Recording / DrawPass</a>
+        <a href="path-rendering.html">3. Path 渲染</a>
+        <a href="renderer-backends.html">4. Renderer / 后端</a>
+        <a href="study-lab.html">5. 练习实验室</a>
+      </nav>
+      <div class="side-note">
+        建议打开源码编辑器和这个 HTML 并排读。每个页面都给具体文件和行号。
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <div class="wrap">
+          <div class="kicker">source reading course</div>
+          <h1>给 C++ 开发者的 ink 源码学习导览</h1>
+          <p class="lead">
+            这份导览不再介绍“ink 是什么项目”。它的目标是带你读懂这套 2D 渲染库的代码：对象边界、命令记录、排序、visitor 分发、路径栅格化、CPU/GL 后端差异。
+          </p>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>先抓住代码主线</h2>
+          <p class="section-lead">
+            你已经熟悉 C++，所以最短路径不是补图形学名词，而是先把它当作一个 record-then-execute 的系统。下面这条链路就是整库的骨架。
+          </p>
+
+          <div class="flow" aria-label="ink source reading spine">
+            <div class="node">
+              <strong>Surface</strong>
+              <span>拥有 Canvas、Device、Renderer，定义帧生命周期。</span>
+            </div>
+            <div class="node">
+              <strong>Canvas</strong>
+              <span>用户侧 facade，维护 clip / transform / save stack。</span>
+            </div>
+            <div class="node">
+              <strong>Recorder</strong>
+              <span>把 draw 调用压成 CompactDrawOp 和 side tables。</span>
+            </div>
+            <div class="node">
+              <strong>DrawPass</strong>
+              <span>按 clip/transform group、op type、color 生成执行顺序。</span>
+            </div>
+            <div class="node">
+              <strong>Renderer</strong>
+              <span>通过 DrawOpVisitor 真正改像素或提交 GPU draw。</span>
+            </div>
+          </div>
+
+          <div class="callout warn">
+            <strong>关键校正:</strong>
+            不要把 <code>canvas-&gt;fillRect(...)</code> 理解成“马上写像素”。在 ink 里，它先变成记录命令；像素变化发生在 <code>Surface::flush()</code> 之后。
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>分章节深读</h2>
+          <p class="section-lead">
+            每个章节都按“读哪些文件 -> 核心代码片段 -> 验证任务 -> 容易误解的点”组织。按顺序读一遍，基本就能开始给 ink 写小功能或修测试。
+          </p>
+
+          <div class="grid three">
+            <a class="card toc-card" href="frame-pipeline.html">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="frame pipeline">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <path d="M32 60 H328" stroke="#6c665f" stroke-width="2"></path>
+                  <g fill="#fffdfa" stroke="#b9aea2">
+                    <rect x="18" y="34" width="64" height="52" rx="8"></rect>
+                    <rect x="106" y="34" width="64" height="52" rx="8"></rect>
+                    <rect x="194" y="34" width="64" height="52" rx="8"></rect>
+                    <rect x="282" y="34" width="64" height="52" rx="8"></rect>
+                  </g>
+                  <text x="50" y="65" text-anchor="middle" font-size="11" fill="#25231f">begin</text>
+                  <text x="138" y="65" text-anchor="middle" font-size="11" fill="#25231f">draw</text>
+                  <text x="226" y="65" text-anchor="middle" font-size="11" fill="#25231f">end</text>
+                  <text x="314" y="65" text-anchor="middle" font-size="11" fill="#25231f">flush</text>
+                </svg>
+              </div>
+              <h3>1. 一帧生命周期</h3>
+              <p>从 <code>Surface::beginFrame</code> 读到 <code>Renderer::execute</code>，确认每一步谁持有状态、谁改像素。</p>
+            </a>
+
+            <a class="card toc-card" href="recording-drawpass.html">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="recording layout">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <rect x="26" y="25" width="118" height="70" rx="8" fill="#fffdfa" stroke="#b9aea2"></rect>
+                  <rect x="170" y="25" width="164" height="70" rx="8" fill="#eef6f2" stroke="#91b7ac"></rect>
+                  <path d="M144 60 H170" stroke="#6c665f" stroke-width="2"></path>
+                  <text x="85" y="55" text-anchor="middle" font-size="12" fill="#25231f">CompactDrawOp</text>
+                  <text x="252" y="50" text-anchor="middle" font-size="12" fill="#25231f">arena / paths / images</text>
+                  <text x="252" y="72" text-anchor="middle" font-size="11" fill="#6c665f">side tables</text>
+                </svg>
+              </div>
+              <h3>2. Recording / DrawPass</h3>
+              <p>读命令缓冲如何组织数据，为什么 clip 和 transform 会切分排序 group。</p>
+            </a>
+
+            <a class="card toc-card" href="path-rendering.html">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="path rendering">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <path d="M50 82 C85 22, 155 22, 182 70 C210 116, 290 78, 312 36" fill="none" stroke="#176b5d" stroke-width="6" stroke-linecap="round"></path>
+                  <path d="M50 82 C85 22, 155 22, 182 70 C210 116, 290 78, 312 36" fill="none" stroke="#b85f3a" stroke-width="2" stroke-dasharray="8 6"></path>
+                  <circle cx="50" cy="82" r="4" fill="#285f8f"></circle>
+                  <circle cx="182" cy="70" r="4" fill="#285f8f"></circle>
+                  <text x="180" y="105" text-anchor="middle" font-size="11" fill="#6c665f">verbs -> flatten -> coverage</text>
+                </svg>
+              </div>
+              <h3>3. Path 渲染</h3>
+              <p>Path 是最好的图形学入口：verbs、fill rule、flatten、scanline、stroke-to-fill、dash。</p>
+            </a>
+
+            <a class="card toc-card" href="renderer-backends.html">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="renderer backends">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <rect x="126" y="18" width="108" height="34" rx="8" fill="#fffdfa" stroke="#b9aea2"></rect>
+                  <rect x="42" y="75" width="102" height="30" rx="8" fill="#eef6f2" stroke="#91b7ac"></rect>
+                  <rect x="216" y="75" width="102" height="30" rx="8" fill="#f1eef7" stroke="#b9a9cc"></rect>
+                  <path d="M180 52 L93 75 M180 52 L267 75" stroke="#6c665f" stroke-width="2"></path>
+                  <text x="180" y="40" text-anchor="middle" font-size="12" fill="#25231f">Renderer</text>
+                  <text x="93" y="95" text-anchor="middle" font-size="12" fill="#25231f">CPU</text>
+                  <text x="267" y="95" text-anchor="middle" font-size="12" fill="#25231f">GPU</text>
+                </svg>
+              </div>
+              <h3>4. Renderer / 后端</h3>
+              <p>同一套 visitor 接口在 CPU 和 GL 后端里完全不同。这里读 parity 和差异。</p>
+            </a>
+
+            <a class="card toc-card" href="study-lab.html">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="study lab">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <g fill="#fffdfa" stroke="#b9aea2">
+                    <rect x="42" y="26" width="276" height="18" rx="6"></rect>
+                    <rect x="42" y="54" width="230" height="18" rx="6"></rect>
+                    <rect x="42" y="82" width="260" height="18" rx="6"></rect>
+                  </g>
+                  <circle cx="54" cy="35" r="4" fill="#176b5d"></circle>
+                  <circle cx="54" cy="63" r="4" fill="#b8872e"></circle>
+                  <circle cx="54" cy="91" r="4" fill="#b85f3a"></circle>
+                </svg>
+              </div>
+              <h3>5. 练习实验室</h3>
+              <p>一组小任务，把“读懂”变成可验证的行为：打印 recording、测 clip、接 ColorFilter。</p>
+            </a>
+
+            <div class="card toc-card">
+              <div class="thumb">
+                <svg viewBox="0 0 360 120" role="img" aria-label="source provenance">
+                  <rect width="360" height="120" fill="#f2eee7"></rect>
+                  <text x="180" y="52" text-anchor="middle" font-size="26" font-family="Georgia, serif" fill="#25231f">13,758</text>
+                  <text x="180" y="76" text-anchor="middle" font-size="12" fill="#6c665f">lines surveyed for this guide</text>
+                </svg>
+              </div>
+              <h3>来源范围</h3>
+              <p>读取 README、ROADMAP、CMake、public headers、src、tests、docs、examples；排除生成产物 <code>docs/_build</code>。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>你读代码时要一直问的 5 个问题</h2>
+          <div class="grid two">
+            <div class="card flat">
+              <h3>1. 这个函数是在记录，还是在执行？</h3>
+              <p><code>Canvas</code> 和 <code>Device</code> 多数时候只是记录。<code>CpuRenderer</code> 和 <code>GLImpl</code> 的 visitor 才执行。</p>
+            </div>
+            <div class="card flat">
+              <h3>2. 状态在哪里保存？</h3>
+              <p>Canvas 保存当前 clip/transform；Recording 保存 SetClip/SetTransform op；Renderer 也保存执行期状态。</p>
+            </div>
+            <div class="card flat">
+              <h3>3. 数据是 inline 还是 side table？</h3>
+              <p><code>CompactDrawOp</code> 存小字段，大对象如 strings、paths、images、shaders 存在 arena 或 side tables。</p>
+            </div>
+            <div class="card flat">
+              <h3>4. 排序有没有改变语义？</h3>
+              <p><code>DrawPass</code> 会重排同组绘制命令。clip/transform 是边界，但同组内的重排要小心 blending 语义。</p>
+            </div>
+            <div class="card flat">
+              <h3>5. CPU 和 GPU 走的是同一算法吗？</h3>
+              <p>不是。CPU path 用 scanline coverage；GL 实心 path 用 stencil-cover；带 shader 的 GL path 当前走临时 CPU raster texture。</p>
+            </div>
+            <div class="card flat">
+              <h3>6. 文档与源码冲突时信谁？</h3>
+              <p>优先信源码和构建脚本。例如 backends 文档说 GL 默认开启，但 <code>CMakeLists.txt</code> 里 <code>INK_ENABLE_GL</code> 默认是 <code>OFF</code>。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="wrap">
+          <h2>生成说明</h2>
+          <p>
+            本导览按当前 working tree 生成。当前仓库有未提交和未跟踪文件，因此这里描述的是本地磁盘状态，不声称它已经是远端 main 的稳定 API。
+          </p>
+          <p>
+            主要来源: <span class="source">README.md</span>, <span class="source">ROADMAP.md</span>, <span class="source">CMakeLists.txt</span>,
+            <span class="source">include/ink</span>, <span class="source">src</span>, <span class="source">tests</span>,
+            <span class="source">docs</span>, <span class="source">examples</span>。
+          </p>
+        </div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
