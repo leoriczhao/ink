@@ -6,7 +6,8 @@
 // Including it without Metal support will cause a compile error.
 
 #if !INK_HAS_METAL
-#error "Metal backend not available. Build with -DINK_ENABLE_METAL=ON on Apple platforms"
+#error                                                                         \
+    "Metal backend not available. Build with -DINK_ENABLE_METAL=ON on Apple platforms"
 #endif
 
 namespace ink {
