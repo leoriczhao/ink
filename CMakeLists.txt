@@ -231,19 +231,25 @@ find_program(SPHINX_BUILD sphinx-build)
 set(INK_DOXYFILE "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile")
 configure_file(Doxyfile.in "${INK_DOXYFILE}" @ONLY)
 
+set(INK_DOXYGEN_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/docs/_build/doxygen")
+set(INK_SPHINX_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/docs/_build/sphinx")
+
 if(DOXYGEN_FOUND AND SPHINX_BUILD)
     add_custom_target(docs
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${INK_DOXYGEN_OUTPUT_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${INK_SPHINX_OUTPUT_DIR}"
         COMMAND ${DOXYGEN_EXECUTABLE} ${INK_DOXYFILE}
         COMMAND ${CMAKE_COMMAND} -E env INK_VERSION=${INK_VERSION_FULL}
                 ${SPHINX_BUILD} -b html
                 ${CMAKE_SOURCE_DIR}/docs
-                ${CMAKE_SOURCE_DIR}/docs/_build/sphinx
+                ${INK_SPHINX_OUTPUT_DIR}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Generating documentation (Doxygen + Sphinx)"
         VERBATIM
     )
 elseif(DOXYGEN_FOUND)
     add_custom_target(docs
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${INK_DOXYGEN_OUTPUT_DIR}"
         COMMAND ${DOXYGEN_EXECUTABLE} ${INK_DOXYFILE}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Generating Doxygen documentation (sphinx-build not found)"
