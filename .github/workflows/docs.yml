@@ -18,9 +18,8 @@ jobs:
 
       - name: Build docs
         run: |
-          mkdir -p docs/_build/doxygen
-          doxygen Doxyfile
-          sphinx-build -b html docs docs/_build/sphinx
+          cmake -B build-docs
+          cmake --build build-docs --target docs
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

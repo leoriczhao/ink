@@ -3,15 +3,16 @@
 /// @file version.hpp
 /// @brief Library version information.
 
-#define INK_VERSION_MAJOR 0
-#define INK_VERSION_MINOR 3
-#define INK_VERSION_PATCH 0
+#define INK_VERSION_MAJOR @INK_VERSION_MAJOR@
+#define INK_VERSION_MINOR @INK_VERSION_MINOR@
+#define INK_VERSION_PATCH @INK_VERSION_PATCH@
+#define INK_VERSION_STRING "@INK_VERSION_FULL@"
 
 namespace ink {
 
-/// @brief Return the library version string (e.g. "0.3.0").
+/// @brief Return the library version string.
 /// @return Null-terminated version string in "major.minor.patch" format.
-inline const char *version() { return "0.3.0"; }
+inline const char *version() { return INK_VERSION_STRING; }
 
 /// @brief Return the major version number.
 /// @return Major version as an integer.

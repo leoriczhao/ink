@@ -1,11 +1,11 @@
 # Doxyfile for ink library
 
 PROJECT_NAME           = "ink"
-PROJECT_NUMBER         = "0.3.0"
+PROJECT_NUMBER         = "@INK_VERSION_FULL@"
 PROJECT_BRIEF          = "A lightweight 2D rendering library with pluggable backends"
 
 OUTPUT_DIRECTORY       = docs/_build/doxygen
-INPUT                  = include/ink
+INPUT                  = include/ink "@INK_GENERATED_INCLUDE_DIR@/ink"
 RECURSIVE              = YES
 FILE_PATTERNS          = *.hpp *.h
 

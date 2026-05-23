@@ -1,9 +1,11 @@
 # Configuration file for the Sphinx documentation builder.
 
+import os
+
 project = 'ink'
 copyright = '2024, ink contributors'
 author = 'ink contributors'
-release = '0.3.0'
+release = os.environ.get('INK_VERSION', '0.0.0')
 
 extensions = [
     'breathe',
@@ -28,5 +30,4 @@ templates_path = ['_templates']
 html_static_path = ['_static']
 
 # Create _static dir if it doesn't exist (avoids warning)
-import os
 os.makedirs(os.path.join(os.path.dirname(__file__), '_static'), exist_ok=True)

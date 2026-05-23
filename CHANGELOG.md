@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Changed
+- Release version metadata is generated at CMake configure time from `-DINK_VERSION`, a source-package `VERSION` file, or the nearest Git tag instead of hard-coded source edits.
+- Stable release packaging now installs generated headers through `cmake --install` before creating binary tarballs.
+
+### Removed
+- Removed `scripts/bump-version.sh`; stable releases now require a changelog PR plus `scripts/release-preflight.sh X.Y.Z` before tagging.
+
 ## [0.3.0] - 2026-04-25
 
 ### Added

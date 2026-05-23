@@ -101,4 +101,4 @@ Do not use when you need language-level coding patterns unrelated to repository 
 - Forgetting README updates when public behavior or usage changes.
 - Using vague commit titles instead of typed prefixes.
 - Adding a public header but forgetting to include it in `ink.hpp` or the CMake install list.
-- Pushing release tags before the version bump PR is merged.
+- Pushing release tags before the changelog PR is merged and release preflight passes.
