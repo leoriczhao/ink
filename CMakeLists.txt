@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
-project(ink VERSION 0.3.0 LANGUAGES CXX)
+
+include(cmake/InkVersion.cmake)
+ink_resolve_version()
+
+project(ink VERSION ${INK_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,11 +33,20 @@ set(INK_CORE_SOURCES
     src/font.cpp
 )
 
+set(INK_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+set(INK_GENERATED_VERSION_HEADER "${INK_GENERATED_INCLUDE_DIR}/ink/version.hpp")
+configure_file(
+    include/ink/version.hpp.in
+    "${INK_GENERATED_VERSION_HEADER}"
+    @ONLY
+)
+
 # --- Create library ---
 add_library(ink ${INK_CORE_SOURCES})
 
 target_include_directories(ink
     PUBLIC
+        $<BUILD_INTERFACE:${INK_GENERATED_INCLUDE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
@@ -121,6 +134,10 @@ install(DIRECTORY include/ink
     FILES_MATCHING PATTERN "*.hpp"
 )
 
+install(FILES "${INK_GENERATED_VERSION_HEADER}"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ink
+)
+
 install(EXPORT inkTargets
     FILE inkTargets.cmake
     NAMESPACE ink::
@@ -172,6 +189,7 @@ if(INK_BUILD_TESTS)
         GIT_TAG v1.14.0
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
@@ -192,10 +210,15 @@ if(INK_BUILD_TESTS)
         tests/test_shapes.cpp
         tests/test_path.cpp
         tests/test_gradient.cpp
+        tests/test_version.cpp
     )
 
     add_executable(ink_tests ${INK_TEST_SOURCES})
     target_link_libraries(ink_tests PRIVATE ink GTest::gtest_main)
+
+    target_compile_definitions(ink_tests PRIVATE
+        INK_TEST_EXPECTED_VERSION="${INK_VERSION_FULL}"
+    )
 
     include(GoogleTest)
     gtest_discover_tests(ink_tests)
@@ -205,10 +228,14 @@ endif()
 find_package(Doxygen QUIET)
 find_program(SPHINX_BUILD sphinx-build)
 
+set(INK_DOXYFILE "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile")
+configure_file(Doxyfile.in "${INK_DOXYFILE}" @ONLY)
+
 if(DOXYGEN_FOUND AND SPHINX_BUILD)
     add_custom_target(docs
-        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
-        COMMAND ${SPHINX_BUILD} -b html
+        COMMAND ${DOXYGEN_EXECUTABLE} ${INK_DOXYFILE}
+        COMMAND ${CMAKE_COMMAND} -E env INK_VERSION=${INK_VERSION_FULL}
+                ${SPHINX_BUILD} -b html
                 ${CMAKE_SOURCE_DIR}/docs
                 ${CMAKE_SOURCE_DIR}/docs/_build/sphinx
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -217,7 +244,7 @@ if(DOXYGEN_FOUND AND SPHINX_BUILD)
     )
 elseif(DOXYGEN_FOUND)
     add_custom_target(docs
-        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        COMMAND ${DOXYGEN_EXECUTABLE} ${INK_DOXYFILE}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Generating Doxygen documentation (sphinx-build not found)"
         VERBATIM

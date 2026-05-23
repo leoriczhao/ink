@@ -15,7 +15,7 @@ Use this skill for a single-maintainer release workflow with two channels:
 
 Core principle: ship often on nightly, gate strictly for stable.
 
-Repository policy remains PR-first: all release-related version/changelog edits land via PR before tagging.
+Repository policy remains PR-first: release-related changelog and workflow edits land via PR before tagging.
 
 ## When to Use
 
@@ -55,8 +55,8 @@ All items must pass before creating `vX.Y.Z`:
 
 1. `master` CI is green (`ci.yml`).
 2. `CHANGELOG.md` includes a complete section for `X.Y.Z`.
-3. Version matches tag across **all** files: `CMakeLists.txt`, `include/ink/version.hpp`, `Doxyfile`, `docs/conf.py`.
-4. Local smoke check succeeds with release-like config.
+3. Local smoke check succeeds with release-like config using `-DINK_VERSION=X.Y.Z`.
+4. The stable tag does not already exist locally or on origin.
 
 One-command preflight (validates all of the above):
 
@@ -80,21 +80,22 @@ ctest --test-dir build-gl --output-on-failure
 
 ## Stable Release Steps
 
-1. Update version using the bump script and update changelog in a normal PR:
-   ```bash
-   ./scripts/bump-version.sh X.Y.Z
-   ```
-   This updates CMakeLists.txt, include/ink/version.hpp, Doxyfile, and docs/conf.py in one command.
+1. Update `CHANGELOG.md` for `X.Y.Z` in a normal PR. Do not edit generated version files.
 2. Merge to `master` after CI passes.
-3. Create and push tag:
+3. From clean, up-to-date `master`, run:
+   ```bash
+   ./scripts/release-preflight.sh X.Y.Z
+   ```
+   This configures CMake with `-DINK_VERSION=X.Y.Z`, runs tests, installs the library, and verifies `ink::version()`.
+4. Create and push tag:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-4. Let `release.yml` build, test, package, and publish.
-5. Perform post-release smoke check by downloading an artifact and validating minimal integration.
+5. Let `release.yml` build, test, package, and publish. The workflow parses `vX.Y.Z` and passes `-DINK_VERSION=X.Y.Z` to CMake.
+6. Perform post-release smoke check by downloading an artifact and validating minimal integration.
 
 ## Nightly Operations
 
@@ -118,13 +119,13 @@ Nightly workflow file: `.github/workflows/nightly.yml`.
 | Stable tag format | `vX.Y.Z` |
 | Stable source branch | `master` |
 | Nightly name | `nightly-YYYYMMDD-<shortsha>` |
-| Mandatory gates | CI green + changelog + version match (all files) + smoke |
+| Mandatory gates | CI green + changelog + `release-preflight.sh X.Y.Z` + tag absence |
 | Recovery | revert bad merge, then new hotfix release; no tag deletion |
 
 ## Common Mistakes
 
-- Tagging before changelog/version updates are merged.
-- Only checking `CMakeLists.txt` version — `version.hpp`, `Doxyfile`, and `docs/conf.py` must also match.
+- Tagging before changelog updates are merged.
+- Reintroducing hard-coded release versions in source files instead of using CMake-generated metadata.
 - Treating nightly artifacts as stable compatibility promises.
 - Releasing while CI is flaky and hoping downstream users will not hit issues.
 - Trying to rewrite history instead of shipping a clean hotfix version.
